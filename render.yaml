@@ -1,0 +1,32 @@
+# Render deployment config — DO NOT deploy until the Render account exists
+# (Alan's or the YMCA's name). Paid tiers only: the free web tier sleeps
+# after 15 idle minutes and free Postgres deletes its data after 30 days.
+#
+# Deploy steps (see README.md):
+#   1. Create the Render account and a new Blueprint from this repo.
+#   2. Set ADMIN_PASSCODE in the Render dashboard (never in this file).
+#   3. Deploy. DATABASE_URL is wired automatically from the database below.
+
+services:
+  - type: web
+    name: mpa-league-app
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LEAGUE_TZ
+        value: America/New_York
+      - key: ADMIN_PASSCODE
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mpa-league-db
+          property: connectionString
+    healthCheckPath: /api/health
+
+databases:
+  - name: mpa-league-db
+    plan: starter
