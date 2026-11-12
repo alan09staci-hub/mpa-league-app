@@ -114,9 +114,14 @@ table.standings { border-collapse: collapse; min-width: 1040px; width: 100%; fon
 table.standings th, table.standings td { border-bottom: 1px solid #eee; padding: 6px 8px; text-align: center; white-space: nowrap; }
 table.standings td.name, table.standings th.name { text-align: left; position: sticky; left: 0; background: #fff; min-width: 130px; }
 table.standings th.v {
-  writing-mode: vertical-rl; transform: rotate(180deg);
-  height: 150px; vertical-align: bottom; text-align: left; font-size: 12px; padding: 8px 4px;
+  height: 150px; vertical-align: bottom; padding: 8px 4px;
 }
+table.standings th.v span {
+  display: inline-block;
+  writing-mode: vertical-rl; transform: rotate(180deg);
+  font-size: 12px; text-align: left;
+}
+
 table.standings tr.you td { background: #fff8e1; }
 .you-badge {
   background: var(--red); color: #fff; font-size: 10px; font-weight: 800;
