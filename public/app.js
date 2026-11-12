@@ -647,7 +647,7 @@ async function renderStandingsTab(league, sessions, currentSessionId, id) {
       </div>
       <div class="table-scroll" id="standScroll">
         <table class="standings">
-          <thead><tr><th class="name">Player</th>${cols.map(([label]) => `<th class="v">${label}</th>`).join('')}</tr></thead>
+          <thead><tr><th class="name">Player</th>${cols.map(([label]) => `<th class="v"><span>${label}</span></th>`).join('')}</tr></thead>
           <tbody>
             ${standings.map((r) => `<tr class="${id && id.personId === r.person_id ? 'you' : ''}">
               <td class="name">${esc(r.name)}${id && id.personId === r.person_id ? '<span class="you-badge">YOU</span>' : ''}</td>
