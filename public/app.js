@@ -1086,7 +1086,7 @@ function renderRsvps(leagueId, sessionId, data, id) {
       ? (isPlaying
         ? `<button class="btn secondary small" data-act="out" data-pid="${p.person_id}">Opt out</button>`
         : `<button class="btn green small" data-act="in" data-pid="${p.person_id}">Opt in</button>`)
-      : (data.isAdmin && !finished
+      : (adminView && data.isAdmin && !finished
         ? (isPlaying
           ? `<button class="btn secondary small" data-act="admin-out" data-pid="${p.person_id}">Opt out</button>`
           : `<button class="btn green small" data-act="admin-in" data-pid="${p.person_id}">Opt in</button>`)
