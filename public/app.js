@@ -222,6 +222,15 @@ async function myLeagues(personId) {
   return leagues;
 }
 function personName(map, id) { return map.get(id) || '—'; }
+function initials(map, id) {
+  const name = (map.get(id) || '').trim();
+  if (!name || name === '—') return '—';
+  const parts = name.split(/\s+/);
+  const first = parts[0] ? parts[0][0] : '';
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
+  return (first + last).toUpperCase();
+}
+
 
 // ---------- router ----------
 let refreshTimer = null;
@@ -954,18 +963,23 @@ function renderMatches(leagueId, sessionId, data, id) {
     return;
   }
   const cardHtml = (m, showScore) => {
-    const t1 = `${esc(personName(rosterMap, m.team1_p1))} & ${esc(personName(rosterMap, m.team1_p2))}`;
-    const t2 = `${esc(personName(rosterMap, m.team2_p1))} & ${esc(personName(rosterMap, m.team2_p2))}`;
-    const bye = byeForRound(m.round);
-    const scored = m.score1 != null;
-    return `<div class="match-card">
-      <div class="teams">Match ${m.round} · Court ${m.court} · Round ${m.round}<br>${t1} <span class="vs">vs</span> ${t2}</div>
-      <p class="muted">to ${m.target_score}</p>
-      ${bye ? `<div class="bye-row">Court ${m.court} · Round ${m.round} — ${esc(personName(rosterMap, bye.bye_person_id))} sits out (BYE)</div>` : ''}
-      ${scored ? `<p>${m.score1} – ${m.score2}</p>` : ''}
-      ${showScore && !finished ? `<button class="btn" data-score="${m.id}">SCORE</button>` : ''}
-    </div>`;
-  };
+  const t1 = `${esc(initials(rosterMap, m.team1_p1))} & ${esc(initials(rosterMap, m.team1_p2))}`;
+  const t2 = `${esc(initials(rosterMap, m.team2_p1))} & ${esc(initials(rosterMap, m.team2_p2))}`;
+  const bye = byeForRound(m.round);
+  const scored = m.score1 != null;
+  return `<div class="match-card">
+    <div class="teams">Match ${m.round}</div>
+    <div class="muted">Court ${m.court} · Round ${m.round}</div>
+    <p class="muted">First to ${m.target_score}, win by 1</p>
+    <div class="teams">${t1}</div>
+    <div class="vs">VS</div>
+    <div class="teams">${t2}</div>
+    ${bye ? `<div class="bye-row">${esc(personName(rosterMap, bye.bye_person_id))} — BYE</div>` : ''}
+    ${scored ? `<p>${m.score1} – ${m.score2}</p>` : ''}
+    ${showScore && !finished ? `<button class="btn" data-score="${m.id}">SCORE</button>` : ''}
+  </div>`;
+};
+
   const current = games.find((m) => m.score1 == null);
   const done = games.filter((m) => m.score1 != null);
   let html = '';
