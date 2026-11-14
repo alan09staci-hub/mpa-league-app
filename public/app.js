@@ -907,7 +907,8 @@ function renderRsvps(leagueId, sessionId, data, id) {
 function renderGroups(data, id) {
   const body = document.getElementById('gdBody');
   const { groups, window: win, isAdmin } = data;
-  if (!win.isRevealed) {
+ if (!win.isRevealed && !isAdmin) {
+
     body.innerHTML = `<div class="card"><p>Groups will show once the opt-in deadline passes (${fmtDateTime(win.deadlineAt)}).</p></div>`;
     return;
   }
@@ -924,7 +925,8 @@ function renderGroups(data, id) {
 function renderMatches(leagueId, sessionId, data, id) {
   const body = document.getElementById('gdBody');
   const { matches, window: win, isAdmin, session } = data;
-  if (!win.isRevealed) {
+ if (!win.isRevealed && !isAdmin) {
+
     body.innerHTML = `<div class="card"><p>Matches will show once the game day starts.</p></div>`;
     return;
   }
