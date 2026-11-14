@@ -814,18 +814,29 @@ async function renderLeague(leagueId) {
         return;
       }
     }
+    const cur = sessions.find((s) => s.id === currentSessionId) || null;
+    const next = sessions.find((s) => s.status === 'upcoming') || null;
+    const nextLine = !sessions.length ? '' : next
+      ? `Next Game Day: ${new Date(next.starts_at).toLocaleDateString('en-US', { weekday: 'short' })} ${fmtDateShort(next.starts_at).replace(/, \d{4}$/, '')}, ${fmtTimeShort(next.starts_at)}`
+      : 'Season complete';
+    const sessionLines = [
+      cur ? `Viewing Session: ${cur.session_number}` : null,
+      nextLine || null,
+    ].filter(Boolean).join('<br>');
     app.innerHTML = `
       <p><a href="#/">${id ? '← Your leagues' : '← All leagues'}</a></p>
       <h1>${esc(league.name)}</h1>
+      <button class="btn secondary small" data-fav-league="${league.id}">${isFav(league.id) ? '★ Favorited' : '♡ Add to favorites'}</button>
       <p class="muted">${esc(league.type)} · ${esc(league.skill)} · ${esc(league.format)} · ${esc(league.day)}s ${esc(fmtClock(league.time))}<br>
       <a href="#" data-map="place" data-map-kind="place">${esc(league.location)}</a><br>
-      ${fmtDateShort(league.start_date)} – ${fmtDateShort(league.stop_date)}</p>
+      ${fmtDateShort(league.start_date)} – ${fmtDateShort(league.stop_date)}${sessionLines ? `<br>${sessionLines}` : ''}</p>
       ${registrationOpen
         ? `<div class="card reg-open"><strong>✓ Registration Open — Join the League</strong><br>
            <span class="muted small">Joining costs $20 (YMCA member) / $50 (non-member), paid on ReClique.</span><br>
            <div class="btnrow"><a class="btn green" href="#/join/${league.id}">Join the League</a></div></div>`
         : `<div class="card reg-closed"><strong>🔒 Registration Closed</strong><br>
            <span class="muted small">Sign-ups for this league are closed right now.</span></div>`}
+      <div class="btnrow"><a class="btn secondary" href="mailto:hello@moultriepickleball.org?subject=MPA%20league%20question">Contact League</a></div>
       ${currentSessionId ? `<div class="btnrow"><a class="btn" href="#/league/${league.id}/game/${currentSessionId}">Current Game Day</a>
         <button class="btn secondary" id="allDaysBtn">All Game Days</button></div>` : ''}
       <div class="tabs" role="tablist">
@@ -835,6 +846,12 @@ async function renderLeague(leagueId) {
       </div>
       <div id="tabBody"><p class="muted">Loading…</p></div>`;
     document.getElementById('allDaysBtn')?.addEventListener('click', () => openAllDays(league, sessions));
+    document.querySelector('button[data-fav-league]')?.addEventListener('click', (e) => {
+      const lid = +e.currentTarget.dataset.favLeague;
+      toggleFav(lid);
+      e.currentTarget.textContent = isFav(lid) ? '★ Favorited' : '♡ Add to favorites';
+      toast(isFav(lid) ? 'Added to favorites on this device.' : 'Removed from favorites.');
+    });
     app.querySelectorAll('.tabs button').forEach((b) => {
       b.onclick = () => { leagueTab = b.dataset.tab; renderLeague(leagueId); };
     });
@@ -1064,11 +1081,16 @@ function renderRsvps(leagueId, sessionId, data, id) {
     const isMe = id && id.personId === p.person_id;
     const fp = isPlaying && p.opted_in_at
       ? `<div class="fp">Opted in ${new Date(p.opted_in_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>` : '';
+    const finished = data.session.status === 'completed';
     const btn = isMe
       ? (isPlaying
         ? `<button class="btn secondary small" data-act="out" data-pid="${p.person_id}">Opt out</button>`
         : `<button class="btn green small" data-act="in" data-pid="${p.person_id}">Opt in</button>`)
-      : '';
+      : (data.isAdmin && !finished
+        ? (isPlaying
+          ? `<button class="btn secondary small" data-act="admin-out" data-pid="${p.person_id}">Opt out</button>`
+          : `<button class="btn green small" data-act="admin-in" data-pid="${p.person_id}">Opt in</button>`)
+        : '');
     return `<div class="person-row ${!id ? 'tappable' : ''}" data-pid="${p.person_id}">
       <span class="rank">${p.rank ?? '—'}</span>
       <span class="who"><span class="nm">${esc(p.name)}</span>${isMe ? '<span class="you-badge">YOU</span>' : ''}${fp}</span>
@@ -1123,10 +1145,13 @@ function renderRsvps(leagueId, sessionId, data, id) {
   body.querySelectorAll('button[data-act]').forEach((b) => {
     b.onclick = async () => {
       const pid = +b.dataset.pid;
+      const act = b.dataset.act;
       try {
-        if (b.dataset.act === 'in') await post(`/api/leagues/${leagueId}/sessions/${sessionId}/opt-in`, { personId: pid });
-        else await post(`/api/leagues/${leagueId}/sessions/${sessionId}/opt-out`, { personId: pid });
-        toast(b.dataset.act === 'in' ? 'Opted in — you are checked in.' : 'Opted out.');
+        if (act === 'in') await post(`/api/leagues/${leagueId}/sessions/${sessionId}/opt-in`, { personId: pid });
+        else if (act === 'out') await post(`/api/leagues/${leagueId}/sessions/${sessionId}/opt-out`, { personId: pid });
+        else if (act === 'admin-in') await post(`/api/admin/leagues/${leagueId}/sessions/${sessionId}/opt-in`, { personId: pid });
+        else await post(`/api/admin/leagues/${leagueId}/sessions/${sessionId}/opt-out`, { personId: pid });
+        toast(act === 'in' ? 'Opted in — you are checked in.' : act === 'admin-in' ? 'Opted in by Admin.' : act === 'admin-out' ? 'Opted out by Admin.' : 'Opted out.');
         renderGameDay(leagueId, sessionId);
       } catch (e) { toast(e.message); }
     };
@@ -1402,7 +1427,39 @@ async function renderAdminBody(leagues, league) {
     <div class="btnrow"><button class="btn secondary small" id="cl-gen-dates">Generate the 8 weekly dates</button></div>
     <div id="cl-dates"><p class="fineprint">Pick the start date and day above, then generate the 8 weekly game days. Each week's date can be edited — move a week that falls on a holiday or during school vacation.</p></div>
     <div class="btnrow"><button class="btn" id="cl-create">Create league</button></div>
-    <p class="fineprint" id="cl-err"></p>`;
+    <p class="fineprint" id="cl-err"></p>
+    <h3>Edit an existing league</h3>
+    <label>League</label><select id="el-league">${leagues.map((l) => `<option value="${l.id}" ${league && l.id === league.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select>
+    <label>League Name</label><input type="text" id="el-name">
+    <div class="field-row">
+      <div><label>Type</label><select id="el-type">
+        <option>Intermediate</option><option>Intermediate/Advanced</option><option>Advanced</option><option>Elite</option><option>Women's</option>
+      </select></div>
+      <div><label>Skill</label><select id="el-skill">
+        <option>2.5-2.99</option><option>3.0-3.49</option><option>3.5-4.49</option><option>5.0-ABOVE</option><option>50+</option>
+      </select></div>
+    </div>
+    <div class="field-row">
+      <div><label>Format</label><select id="el-format">
+        <option>Coed Doubles</option><option>Women's Doubles</option><option>Men's Doubles</option>
+      </select></div>
+      <div><label>Season</label><select id="el-season"><option value="">Not set</option><option>Winter 2026</option><option>Spring 2027</option><option>Summer 2027</option><option>Fall 2027</option></select></div>
+    </div>
+    <div class="field-row">
+      <div><label>Day</label><select id="el-day">
+        <option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option><option>Friday</option><option>Saturday</option><option>Sunday</option>
+      </select></div>
+      <div><label>Time</label><select id="el-time">
+        <option>08:30</option><option>09:00</option><option>17:00</option><option>18:30</option><option>19:00</option>
+      </select></div>
+    </div>
+    <div class="field-row">
+      <div><label>Season start</label><input type="date" id="el-start"></div>
+      <div><label>Season stop</label><input type="date" id="el-stop"></div>
+    </div>
+    <p class="fineprint">Changing the time moves the start time of upcoming game days (same dates) so the opt-in deadline follows the new time. Game-day dates are moved separately under Game day tools.</p>
+    <div class="btnrow"><button class="btn" id="el-save">Save league changes</button></div>
+    <p class="fineprint" id="el-err"></p>`;
 
   // ---- per-league data for the sections below ----
   let regHtml = '<p class="muted">Pick a league above.</p>';
@@ -1460,6 +1517,7 @@ async function renderAdminBody(leagues, league) {
         <span class="rowbtns">
           <button class="btn secondary small" data-p-waive="${p.person_id}" data-waived="${p.fee_waived ? 1 : 0}">${p.fee_waived ? 'Undo fee waiver' : 'Waive fee'}</button>
           <button class="btn secondary small" data-p-edit="${p.person_id}">Edit DUPR</button>
+          <button class="btn secondary small" data-p-name="${p.person_id}">Edit name</button>
           <button class="btn secondary small" data-remove="${p.person_id}">Remove</button>
         </span></div>
       <div class="edit-slot" id="p-edit-${p.person_id}"></div>`).join('') || '<p class="muted">No players yet.</p>'}`;
@@ -1505,7 +1563,7 @@ async function renderAdminBody(leagues, league) {
     <div id="an-out"><p class="fineprint">Picks the league and writes an advertising email and a shorter text version from that league's saved record. Nothing is sent by the app — copy the drafts and send them from your own email or phone.</p></div>`;
 
   body.innerHTML = logoHtml +
-    section('create', 'Create a league', 'Make a new league: name, type, skill, format, day, time, and season dates.', createHtml) +
+    section('create', 'Create a league', 'Make a new league, or edit an existing one: name, type, skill, format, day, time, and season dates.', createHtml) +
     section('registration', 'Registration', 'Open or close league sign-ups.', regHtml) +
     section('registrations', 'Registrations', 'People who signed up: confirm them, waive a fee, or add them to a league.', regsHtml) +
     section('members', 'Members', 'Free MPA member directory, with DUPR ratings and an Edit button per member.', membersHtml) +
@@ -1585,6 +1643,55 @@ async function renderAdminBody(leagues, league) {
         const { league: created } = await api('/api/admin/leagues', { method: 'POST', body: JSON.stringify(payload) });
         toast(`League "${created.name}" created with 8 game days.`);
         adminLeagueId = created.id;
+        renderAdmin();
+      } catch (e) { err.textContent = e.message; }
+    };
+  }
+
+  // ---- edit an existing league ----
+  const elLeague = document.getElementById('el-league');
+  if (elLeague && leagues.length) {
+    const fillEdit = () => {
+      const l = leagues.find((x) => x.id === +elLeague.value);
+      if (!l) return;
+      document.getElementById('el-name').value = l.name || '';
+      const setSel = (id, val) => {
+        const sel = document.getElementById(id);
+        if (val != null && ![...sel.options].map((o) => o.value).includes(val)) {
+          const o = document.createElement('option');
+          o.value = val; o.textContent = val; sel.appendChild(o);
+        }
+        sel.value = val ?? '';
+      };
+      setSel('el-type', l.type);
+      setSel('el-skill', l.skill);
+      setSel('el-format', l.format);
+      setSel('el-season', l.season || '');
+      setSel('el-day', l.day);
+      setSel('el-time', String(l.time).slice(0, 5));
+      document.getElementById('el-start').value = (l.start_date || '').slice(0, 10);
+      document.getElementById('el-stop').value = (l.stop_date || '').slice(0, 10);
+    };
+    elLeague.onchange = fillEdit;
+    fillEdit();
+    document.getElementById('el-save').onclick = async () => {
+      const err = document.getElementById('el-err');
+      try {
+        await api(`/api/admin/leagues/${elLeague.value}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            name: document.getElementById('el-name').value.trim(),
+            type: document.getElementById('el-type').value,
+            skill: document.getElementById('el-skill').value,
+            format: document.getElementById('el-format').value,
+            day: document.getElementById('el-day').value,
+            time: document.getElementById('el-time').value,
+            season: document.getElementById('el-season').value,
+            startDate: document.getElementById('el-start').value,
+            stopDate: document.getElementById('el-stop').value,
+          }),
+        });
+        toast('League updated.');
         renderAdmin();
       } catch (e) { err.textContent = e.message; }
     };
@@ -1799,6 +1906,31 @@ async function renderAdminBody(leagues, league) {
             }),
           });
           toast('DUPR saved.');
+          renderAdmin();
+        } catch (e) { err.textContent = e.message; }
+      };
+    };
+  });
+  body.querySelectorAll('button[data-p-name]').forEach((b) => {
+    b.onclick = async () => {
+      const slot = document.getElementById(`p-edit-${b.dataset.pName}`);
+      const { roster } = await api(`/api/leagues/${league.id}/roster`);
+      const p = roster.find((x) => x.person_id === +b.dataset.pName);
+      if (!p) return;
+      slot.innerHTML = `<div class="card">
+        <label>Player name</label><input type="text" id="pn-name" value="${esc(p.name)}">
+        <p class="fineprint">Renames this player everywhere at once — roster, member directory, and registrations.</p>
+        <div class="btnrow"><button class="btn small" id="pn-save">Save name</button></div>
+        <p class="fineprint" id="pn-err"></p></div>`;
+      document.getElementById('pn-save').onclick = async () => {
+        const err = document.getElementById('pn-err');
+        const name = document.getElementById('pn-name').value.trim();
+        if (!name) { err.textContent = 'Name cannot be empty.'; return; }
+        const dup = roster.find((x) => x.person_id !== p.person_id && x.name.toLowerCase() === name.toLowerCase());
+        if (dup && !confirm(`A player named ${name} is already on this roster. Rename anyway?`)) return;
+        try {
+          await api(`/api/admin/people/${p.person_id}/name`, { method: 'PATCH', body: JSON.stringify({ name }) });
+          toast('Name updated.');
           renderAdmin();
         } catch (e) { err.textContent = e.message; }
       };
