@@ -13,6 +13,7 @@ const {
   findOrCreatePerson,
   normalizeLeague,
   dateOnly,
+  skillRangeError,
 } = require('../lib/league');
 const { zonedToUtc } = require('../lib/time');
 
@@ -105,6 +106,31 @@ router.get('/members/search', (req, res) =>
 // Become a free MPA member. A DUPR account is required to be part of MPA.
 // Duplicate names are rejected; an existing person record is linked, not
 // duplicated. Returns the public member (no email/phone).
+// Look a member up by DUPR ID — the join page's member check. Returns
+// public fields only (no email/phone): a match means they're already an
+// MPA member, so the join form welcomes them back instead of repeating
+// the new-member steps. 404 means not a member yet.
+router.get('/members/by-dupr/:duprId', (req, res) =>
+  handle(async () => {
+    const duprId = cleanStr(req.params.duprId, 50);
+    if (!duprId) throw err(400, 'A DUPR ID is required.');
+    const { rows } = await pool.query(
+      `SELECT id, person_id, name, dupr_id, dupr_rating, photo_url, resides, age, country
+         FROM members WHERE lower(dupr_id) = lower($1) LIMIT 1`,
+      [duprId]
+    );
+    const m = rows[0];
+    if (!m) throw err(404, 'No member with that DUPR ID.');
+    res.json({
+      member: {
+        id: m.id, person_id: m.person_id, name: m.name, dupr_id: m.dupr_id,
+        dupr_rating: m.dupr_rating == null ? null : Number(m.dupr_rating),
+        photo_url: m.photo_url, resides: m.resides, age: m.age, country: m.country,
+      },
+    });
+  }, req, res)
+);
+
 router.post('/members', (req, res) =>
   handle(async () => {
     const name = cleanStr(req.body.name);
@@ -197,6 +223,11 @@ router.post('/leagues/:id/registrations', (req, res) =>
     if (duprRating == null) throw err(400, 'A DUPR doubles rating is required.');
     if (!email || !email.includes('@')) throw err(400, 'A valid email is required.');
     if (!phone) throw err(400, 'A phone number is required.');
+
+    // The league's skill band is the qualifier: a rating outside it cannot
+    // join this league (the join page shows the same check up front).
+    const skillErr = skillRangeError(league.skill, duprRating);
+    if (skillErr) throw err(400, skillErr);
 
     const existing = await pool.query(
       `SELECT id FROM registrations
@@ -637,6 +668,33 @@ router.get('/admin/leagues/:id/announce', auth.requireAdmin, (req, res) =>
         session_number: s.session_number, date: s.date instanceof Date ? s.date.toISOString().slice(0, 10) : String(s.date).slice(0, 10), starts_at: s.starts_at,
         status: s.status, label: s.label,
       })),
+      members,
+      memberCount: members.length,
+      withEmail: members.filter((m) => m.email).length,
+      withPhone: members.filter((m) => m.phone).length,
+    });
+  }, req, res)
+);
+
+// Everything the all-leagues announcement needs: every league (with its
+// player count and registration state) and the member recipient list.
+// The draft itself lists only leagues with registration open; nothing is
+// sent by the app — drafts are copied by the organizer.
+router.get('/admin/announce-all', auth.requireAdmin, (req, res) =>
+  handle(async () => {
+    const { rows } = await pool.query(
+      `SELECT l.*, COALESCE(pc.count, 0) AS player_count, ls.registration_open
+         FROM leagues l
+         LEFT JOIN (SELECT league_id, COUNT(*) AS count FROM player_leagues GROUP BY league_id) pc
+           ON pc.league_id = l.id
+         LEFT JOIN league_settings ls ON ls.league_id = l.id
+        ORDER BY l.start_date ASC`
+    );
+    const { rows: members } = await pool.query(
+      'SELECT name, email, phone FROM members ORDER BY name ASC'
+    );
+    res.json({
+      leagues: rows.map(normalizeLeague),
       members,
       memberCount: members.length,
       withEmail: members.filter((m) => m.email).length,
