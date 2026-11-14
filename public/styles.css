@@ -280,3 +280,61 @@ table.standings tr.you td { background: #fff8e1; }
   .sheet .btnrow { display: none; }
   .court-sheet { page-break-inside: avoid; }
 }
+
+/* ---------- members search engine + profile ---------- */
+.dupr-powered { text-align: right; font-size: 13px; color: var(--grey); margin: 8px 0; }
+.dupr-powered strong { color: #1f2a44; }
+.filter-bar { margin: 10px 0; }
+.filter-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.filter-grid label { margin: 0; }
+@media (max-width: 640px) { .filter-grid { grid-template-columns: 1fr 1fr; } }
+.dir-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 6px 0; }
+.dir-head h2 { margin: 0; }
+.view-toggle { display: flex; flex: none; }
+.view-toggle button { border: 1px solid var(--line); background: #fff; padding: 8px 12px; font-weight: 600; font-size: 14px; }
+.view-toggle button:first-child { border-radius: 8px 0 0 8px; }
+.view-toggle button:last-child { border-radius: 0 8px 8px 0; }
+.view-toggle button.active { background: #1f2a44; color: #fff; border-color: #1f2a44; }
+.mem-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+
+/* Tile card (vertical, WRPA-style). These rules come after the old
+   horizontal .member-tile rules and win on equal specificity. */
+.member-tile { position: relative; display: block; text-align: center; padding: 14px; }
+.member-tile .avatar.big { width: 96px; height: 96px; font-size: 36px; margin: 8px auto 10px; }
+.member-tile .photo { width: 96px; height: 96px; margin: 8px auto 10px; }
+.member-tile .tile-back { display: none; }
+.member-tile.flipped .tile-front { display: none; }
+.member-tile.flipped .tile-back { display: block; }
+.flip-btn { position: absolute; top: 8px; right: 8px; background: none; border: 0; color: var(--grey); font-size: 13px; padding: 4px; }
+.tile-row { display: flex; justify-content: space-between; gap: 10px; text-align: left; margin: 8px 0; }
+.tile-row > span { min-width: 0; }
+.tile-name { font-size: 17px; margin-top: 10px; }
+.tile-name a { color: var(--black); text-decoration: none; }
+.tile-am { font-size: 12px; color: var(--grey); font-weight: 700; letter-spacing: .04em; margin-top: 2px; }
+.tile-back-rows { text-align: left; margin: 10px 0; }
+.tile-back-rows > div { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid #f0eee9; }
+.tile-back-rows > div:last-child { border-bottom: 0; }
+.lbl { display: block; font-size: 11px; color: var(--grey); font-weight: 600; text-transform: uppercase; }
+.member-list-row { display: flex; gap: 12px; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 8px 0; }
+.member-list-row .avatar.big { width: 48px; height: 48px; font-size: 20px; flex: none; }
+.member-list-row .photo { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; flex: none; }
+.member-list-row .info { flex: 1; min-width: 0; }
+.member-list-row .info .nm { font-weight: 700; }
+.member-list-row .info .nm a { color: var(--black); text-decoration: none; }
+.member-list-row .info .sub { color: var(--grey); font-size: 13px; }
+
+/* Member profile page */
+.profile-head { text-align: center; margin: 10px 0 4px; }
+.profile-head h1 { margin: 8px 0 2px; }
+.avatar.huge { width: 120px; height: 120px; font-size: 48px; }
+.photo.big { width: 120px; height: 120px; border-radius: 50%; object-fit: cover; }
+.detail-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; background: #faf9f6; border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 12px 0; }
+.detail-strip > div { min-width: 0; overflow-wrap: break-word; }
+.rating-boxes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 10px 0; }
+.rating-box { background: #faf9f6; border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.rating-box strong { display: block; font-size: 26px; margin-top: 2px; }
+button.stat { cursor: pointer; font: inherit; }
+@media (max-width: 520px) {
+  .detail-strip { grid-template-columns: 1fr 1fr; }
+  .rating-boxes { grid-template-columns: 1fr; }
+}
