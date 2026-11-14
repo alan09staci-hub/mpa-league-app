@@ -2117,13 +2117,13 @@ function announceHtml({ league, sessions, members, memberCount, withEmail, withP
     <div class="card"><h3>Email draft</h3>
       <label>Subject</label><input type="text" id="an-subject" value="${esc(subject)}" readonly>
       <div class="btnrow"><button class="btn secondary small" id="an-copy-subject">Copy subject</button>
-      <button class="btn small" id="an-copy-email">Copy email</button></div>
+      <button class="btn small" id="an-copy-email">Copy email</button>${emails ? `<a class="btn small" href="mailto:${esc(emails.replace(/ /g, ''))}?subject=${encodeURIComponent(subject)}&amp;body=${encodeURIComponent(emailText)}">Send by email</a>` : ''}</div>
       <div class="draft" id="an-email-body">${emailBodyHtml}</div>
       <p class="fineprint">Copy keeps the links clickable when pasted into email.</p>
     </div>
     <div class="card"><h3>Text message draft</h3>
       <pre class="draft-text" id="an-text-body">${esc(textDraft)}</pre>
-      <div class="btnrow"><button class="btn small" id="an-copy-text">Copy text</button></div>
+      <div class="btnrow"><button class="btn small" id="an-copy-text">Copy text</button>${phones ? `<a class="btn small" href="sms:${esc(phones.replace(/ /g, ''))}?&amp;body=${encodeURIComponent(textDraft)}">Send by text</a>` : ''}</div>
     </div>
     <div class="card"><h3>Who it goes to — MPA members (${memberCount})</h3>
       <p class="muted small">${withEmail} with an email on file · ${withPhone} with a phone number</p>
@@ -2180,13 +2180,13 @@ function announceAllHtml({ leagues, members, memberCount, withEmail, withPhone }
     <div class="card"><h3>Email draft — all open leagues (${open.length})</h3>
       <label>Subject</label><input type="text" id="an-subject" value="${esc(subject)}" readonly>
       <div class="btnrow"><button class="btn secondary small" id="an-copy-subject">Copy subject</button>
-      <button class="btn small" id="an-copy-email">Copy email</button></div>
+      <button class="btn small" id="an-copy-email">Copy email</button>${emails ? `<a class="btn small" href="mailto:${esc(emails.replace(/ /g, ''))}?subject=${encodeURIComponent(subject)}&amp;body=${encodeURIComponent(emailText)}">Send by email</a>` : ''}</div>
       <div class="draft" id="an-email-body">${emailBodyHtml}</div>
       <p class="fineprint">Copy keeps the links clickable when pasted into email.</p>
     </div>
     <div class="card"><h3>Text message draft</h3>
       <pre class="draft-text" id="an-text-body">${esc(textDraft)}</pre>
-      <div class="btnrow"><button class="btn small" id="an-copy-text">Copy text</button></div>
+      <div class="btnrow"><button class="btn small" id="an-copy-text">Copy text</button>${phones ? `<a class="btn small" href="sms:${esc(phones.replace(/ /g, ''))}?&amp;body=${encodeURIComponent(textDraft)}">Send by text</a>` : ''}</div>
     </div>
     <div class="card"><h3>Who it goes to — MPA members (${memberCount})</h3>
       <p class="muted small">${withEmail} with an email on file · ${withPhone} with a phone number</p>
