@@ -2221,8 +2221,7 @@ function announceJoinHtml({ members, memberCount, withEmail, withPhone }) {
     ``,
     `Join here: ${APP_URL}/`,
     ``,
-    `Joining a league costs $20 (YMCA member) / $50 (non-member), paid on ReClique: ${RECLIQUE_URL}`,
-    ``,
+
     `Moultrie Pickleball Association`,
   ].join('\n');
   const emailBodyHtml = [
@@ -2230,7 +2229,6 @@ function announceJoinHtml({ members, memberCount, withEmail, withPhone }) {
     `<p>MPA runs ladder leagues at the YMCA in Moultrie, GA — Coed Doubles, Women's Doubles, and more, for every skill level. Pick the league for your skill and play every week.</p>`,
     `<p><strong>Two steps to join:</strong><br>1. Get a free DUPR account: <a href="${DUPR_SIGNUP_URL}">${DUPR_SIGNUP_URL}</a><br>2. Become a free MPA member</p>`,
     `<p>Join here: <a href="${APP_URL}/">${APP_URL}/</a></p>`,
-    `<p>Joining a league costs $20 (YMCA member) / $50 (non-member), paid on ReClique: <a href="${RECLIQUE_URL}">${RECLIQUE_URL}</a></p>`,
     `<p>Moultrie Pickleball Association</p>`,
   ].join('');
   const textDraft = [
@@ -2238,7 +2236,6 @@ function announceJoinHtml({ members, memberCount, withEmail, withPhone }) {
     `1. Get a free DUPR account: ${DUPR_SIGNUP_URL}`,
     `2. Become a free MPA member`,
     `Join here: ${APP_URL}/`,
-    `Leagues are $20 member / $50 non-member.`,
     `— Moultrie Pickleball Association`,
   ].join('\n');
   const emails = members.filter((m) => m.email).map((m) => m.email).join(', ');
