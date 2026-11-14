@@ -962,15 +962,15 @@ function renderMatches(leagueId, sessionId, data, id) {
     body.innerHTML = byes.map((m) => `<div class="bye-row">Court ${m.court} · Round ${m.round} — ${esc(personName(rosterMap, m.bye_person_id))} sits out (BYE)</div>`).join('');
     return;
   }
-  const cardHtml = (m, showScore) => {
-  const t1 = `${esc(initials(rosterMap, m.team1_p1))} & ${esc(initials(rosterMap, m.team1_p2))}`;
-  const t2 = `${esc(initials(rosterMap, m.team2_p1))} & ${esc(initials(rosterMap, m.team2_p2))}`;
+ const cardHtml = (m, showScore) => {
+  const t1 = `${esc(personName(rosterMap, m.team1_p1))} & ${esc(personName(rosterMap, m.team1_p2))}`;
+  const t2 = `${esc(personName(rosterMap, m.team2_p1))} & ${esc(personName(rosterMap, m.team2_p2))}`;
   const bye = byeForRound(m.round);
   const scored = m.score1 != null;
   return `<div class="match-card">
     <div class="teams">Match ${m.round}</div>
-    <div class="muted">Court ${m.court} · Round ${m.round}</div>
     <p class="muted">First to ${m.target_score}, win by 1</p>
+    <div class="muted">Court ${m.court} · Round ${m.round}</div>
     <div class="teams">${t1}</div>
     <div class="vs">VS</div>
     <div class="teams">${t2}</div>
@@ -979,6 +979,7 @@ function renderMatches(leagueId, sessionId, data, id) {
     ${showScore && !finished ? `<button class="btn" data-score="${m.id}">SCORE</button>` : ''}
   </div>`;
 };
+
 
   const current = games.find((m) => m.score1 == null);
   const done = games.filter((m) => m.score1 != null);
