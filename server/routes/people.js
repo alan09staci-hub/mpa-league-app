@@ -69,6 +69,8 @@ router.get('/members', (req, res) =>
     const { rows } = await pool.query(
       `SELECT m.id, m.person_id, m.name, m.dupr_id, m.dupr_rating,
               m.dupr_profile_url, m.photo_url, m.resides, m.age, m.country,
+              m.nickname, m.gender, m.height, m.handed,
+              m.singles_rating, m.skinny_rating,
               m.joined_at,
               COALESCE((SELECT json_agg(l.name)
                           FROM player_leagues pl JOIN leagues l ON l.id = pl.league_id
@@ -87,7 +89,9 @@ router.get('/members/search', (req, res) =>
     if (!q) return res.json({ members: [] });
     const { rows } = await pool.query(
       `SELECT m.id, m.person_id, m.name, m.dupr_id, m.dupr_rating,
-              m.dupr_profile_url, m.photo_url, m.resides, m.age, m.country
+              m.dupr_profile_url, m.photo_url, m.resides, m.age, m.country,
+              m.nickname, m.gender, m.height, m.handed,
+              m.singles_rating, m.skinny_rating
          FROM members m WHERE lower(m.name) LIKE '%' || lower($1) || '%'
         ORDER BY m.name ASC LIMIT 20`,
       [q]
@@ -111,6 +115,12 @@ router.post('/members', (req, res) =>
     const resides = cleanStr(req.body.resides);
     const age = asInt(req.body.age);
     const country = cleanStr(req.body.country);
+    const nickname = cleanStr(req.body.nickname, 100);
+    const gender = cleanStr(req.body.gender, 20);
+    const height = cleanStr(req.body.height, 20);
+    const handed = cleanStr(req.body.handed, 20);
+    const singlesRating = cleanRating(req.body.singlesRating);
+    const skinnyRating = cleanRating(req.body.skinnyRating);
     if (!name) throw err(400, 'Name is required.');
     if (!email || !email.includes('@')) throw err(400, 'A valid email is required.');
     if (!phone) throw err(400, 'A phone number is required.');
@@ -138,9 +148,11 @@ router.post('/members', (req, res) =>
     );
     const { rows } = await pool.query(
       `INSERT INTO members (person_id, name, email, phone, dupr_id, dupr_rating,
-                            dupr_profile_url, photo_url, resides, age, country)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [person.id, name, email, phone, duprId, duprRating, duprProfileUrl, photoUrl, resides, age, country]
+                            dupr_profile_url, photo_url, resides, age, country,
+                            nickname, gender, height, handed, singles_rating, skinny_rating)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+      [person.id, name, email, phone, duprId, duprRating, duprProfileUrl, photoUrl, resides, age, country,
+       nickname, gender, height, handed, singlesRating, skinnyRating]
     );
     const m = rows[0];
     res.status(201).json({
@@ -148,6 +160,9 @@ router.post('/members', (req, res) =>
         id: m.id, person_id: m.person_id, name: m.name, dupr_id: m.dupr_id,
         dupr_rating: Number(m.dupr_rating), dupr_profile_url: m.dupr_profile_url,
         photo_url: m.photo_url, resides: m.resides, age: m.age, country: m.country,
+        nickname: m.nickname, gender: m.gender, height: m.height, handed: m.handed,
+        singles_rating: m.singles_rating == null ? null : Number(m.singles_rating),
+        skinny_rating: m.skinny_rating == null ? null : Number(m.skinny_rating),
         joined_at: m.joined_at,
       },
     });
@@ -323,6 +338,9 @@ router.get('/people/:id/profile', (req, res) =>
         dupr_rating: m.dupr_rating == null ? null : Number(m.dupr_rating),
         dupr_profile_url: m.dupr_profile_url, photo_url: m.photo_url,
         resides: m.resides, age: m.age, country: m.country, joined_at: m.joined_at,
+        nickname: m.nickname, gender: m.gender, height: m.height, handed: m.handed,
+        singles_rating: m.singles_rating == null ? null : Number(m.singles_rating),
+        skinny_rating: m.skinny_rating == null ? null : Number(m.skinny_rating),
       } : null,
       leagues: await leaguesOfPerson(pool, personId),
     });
@@ -348,6 +366,12 @@ router.patch('/people/:id/profile', (req, res) =>
     const resides = cleanStr(req.body.resides);
     const age = req.body.age === '' || req.body.age == null ? null : asInt(req.body.age);
     const country = cleanStr(req.body.country);
+    const nickname = cleanStr(req.body.nickname, 100);
+    const gender = cleanStr(req.body.gender, 20);
+    const height = cleanStr(req.body.height, 20);
+    const handed = cleanStr(req.body.handed, 20);
+    const singlesRating = cleanRating(req.body.singlesRating);
+    const skinnyRating = cleanRating(req.body.skinnyRating);
     if (email && !email.includes('@')) throw err(400, 'That email does not look valid.');
     if (duprProfileUrl && !/^https:\/\//i.test(duprProfileUrl)) {
       throw err(400, 'The DUPR profile link must start with https://');
@@ -366,19 +390,25 @@ router.patch('/people/:id/profile', (req, res) =>
         `UPDATE members SET email = COALESCE($2, email), phone = COALESCE($3, phone),
            dupr_id = COALESCE($4, dupr_id), dupr_rating = COALESCE($5, dupr_rating),
            dupr_profile_url = COALESCE($6, dupr_profile_url), photo_url = COALESCE($7, photo_url),
-           resides = COALESCE($8, resides), age = COALESCE($9, age), country = COALESCE($10, country)
+           resides = COALESCE($8, resides), age = COALESCE($9, age), country = COALESCE($10, country),
+           nickname = COALESCE($11, nickname), gender = COALESCE($12, gender),
+           height = COALESCE($13, height), handed = COALESCE($14, handed),
+           singles_rating = COALESCE($15, singles_rating), skinny_rating = COALESCE($16, skinny_rating)
          WHERE person_id = $1`,
-        [personId, email, phone, duprId, duprRating, duprProfileUrl, photoUrl, resides, age, country]
+        [personId, email, phone, duprId, duprRating, duprProfileUrl, photoUrl, resides, age, country,
+         nickname, gender, height, handed, singlesRating, skinnyRating]
       );
     } else {
       await pool.query(
         `INSERT INTO members (person_id, name, email, phone, dupr_id, dupr_rating,
-                              dupr_profile_url, photo_url, resides, age, country)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+                              dupr_profile_url, photo_url, resides, age, country,
+                              nickname, gender, height, handed, singles_rating, skinny_rating)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
         [personId, p.name, email, phone,
          duprId || p.dupr_id, duprRating != null ? duprRating : p.dupr_rating,
          duprProfileUrl || p.dupr_profile_url, photoUrl || p.photo_url,
-         resides || p.resides, age != null ? age : p.age, country || p.country]
+         resides || p.resides, age != null ? age : p.age, country || p.country,
+         nickname, gender, height, handed, singlesRating, skinnyRating]
       );
     }
     res.json({ ok: true });
@@ -415,6 +445,12 @@ router.patch('/admin/members/:id', auth.requireAdmin, (req, res) =>
     const resides = cleanStr(req.body.resides);
     const age = req.body.age === '' || req.body.age == null ? null : asInt(req.body.age);
     const country = cleanStr(req.body.country);
+    const nickname = cleanStr(req.body.nickname, 100);
+    const gender = cleanStr(req.body.gender, 20);
+    const height = cleanStr(req.body.height, 20);
+    const handed = cleanStr(req.body.handed, 20);
+    const singlesRating = cleanRating(req.body.singlesRating);
+    const skinnyRating = cleanRating(req.body.skinnyRating);
     if (duprProfileUrl && !/^https:\/\//i.test(duprProfileUrl)) {
       throw err(400, 'The DUPR profile link must start with https://');
     }
@@ -422,9 +458,13 @@ router.patch('/admin/members/:id', auth.requireAdmin, (req, res) =>
       `UPDATE members SET email = COALESCE($2, email), phone = COALESCE($3, phone),
          dupr_id = COALESCE($4, dupr_id), dupr_rating = COALESCE($5, dupr_rating),
          dupr_profile_url = COALESCE($6, dupr_profile_url), photo_url = COALESCE($7, photo_url),
-         resides = COALESCE($8, resides), age = COALESCE($9, age), country = COALESCE($10, country)
+         resides = COALESCE($8, resides), age = COALESCE($9, age), country = COALESCE($10, country),
+         nickname = COALESCE($11, nickname), gender = COALESCE($12, gender),
+         height = COALESCE($13, height), handed = COALESCE($14, handed),
+         singles_rating = COALESCE($15, singles_rating), skinny_rating = COALESCE($16, skinny_rating)
        WHERE id = $1`,
-      [id, email, phone, duprId, duprRating, duprProfileUrl, photoUrl, resides, age, country]
+      [id, email, phone, duprId, duprRating, duprProfileUrl, photoUrl, resides, age, country,
+       nickname, gender, height, handed, singlesRating, skinnyRating]
     );
     if (m.person_id) {
       await pool.query(
