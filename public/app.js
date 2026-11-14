@@ -1072,6 +1072,7 @@ refreshTimer = setInterval(() => {
 }
 
 function renderRsvps(leagueId, sessionId, data, id) {
+  const adminView = location.hash.includes('view=organizer');
   const body = document.getElementById('gdBody');
   const { counts, playing, notPlaying } = data;
   const total = counts.total || 0;
