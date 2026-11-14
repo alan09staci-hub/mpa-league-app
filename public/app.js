@@ -1557,7 +1557,8 @@ async function renderAdminBody(leagues, league) {
       <p class="fineprint">Moving a game day shifts that day and every game day after it by the same amount, so the season stays weekly — if a night is rained out, moving it a week pushes the whole rest of the season back a week.</p>`;
   }
 
-  const announceHtml = `
+ const announceSectionHtml = `
+
     <label>League</label>
     <select id="an-league">${leagues.map((l) => `<option value="${l.id}" ${league && l.id === league.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select>
     <div class="btnrow"><button class="btn" id="an-gen">Write the announcement</button></div>
@@ -1571,7 +1572,8 @@ async function renderAdminBody(leagues, league) {
     section('players', 'Players', 'The league roster: add, edit, or remove players.', playersHtml) +
     section('penalties', 'Standings penalties', 'Miss penalties and Admin adjustments per player.', penaltiesHtml) +
     section('tools', 'Game day tools', 'Finish a game day, build the schedule, print the court sheet, and move a game day.', toolsHtml) +
-    section('announce', 'Announce this league', 'Writes the email and text announcement for a league, with copy buttons.', announceHtml);
+    section('announce', 'Announce this league', 'Writes the email and text announcement for a league, with copy buttons.', announceSectionHtml);
+
 
   body.querySelectorAll('.admin-section > button.head').forEach((b) => {
     b.onclick = () => {
