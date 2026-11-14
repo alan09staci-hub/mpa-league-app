@@ -7,7 +7,8 @@
 //   roster count. Admin can add a manual adjustment on top.
 //   Max Movement Rule: 20% of league size, floored (7 for a 36-player
 //   league). The Y flag marks a player who moved the maximum in either
-//   direction OR did not play that week; absent players CANNOT move up.
+//   direction; otherwise N. A player who sat out keeps their frozen E/P
+//   and ranks wherever that number lands, so they can move up.
 //   First game night seeding: by DUPR rating, highest to lowest, until
 //   the first session is completed; then E/P governs.
 //
@@ -124,33 +125,10 @@ function computeStandings({ league, roster, sessions, prevSnapshot, latestComple
     return a.name.localeCompare(b.name);
   });
 
-  const absentLatest = latestCompleted
-    ? new Set(rows.filter((r) => !latestCompleted.attendees.has(r.person_id)).map((r) => r.person_id))
-    : new Set();
-
-  // Assign final ranks. Sort key is the raw position, except an absent
-  // player sorts no higher than their previous rank (absent players cannot
-  // move up). Then repair: any absent player still ranked above their
-  // previous rank swaps places with the player at their previous rank.
-  // The repair terminates because snapshot ranks are unique, so a fixed
-  // absent player can never be displaced by another repair.
-  const keyed = rows.map((r, idx) => {
-    const key = absentLatest.has(r.person_id) && r.previous != null
-      ? Math.max(idx, r.previous - 1)
-      : idx;
-    return { r, idx, key };
-  });
-  keyed.sort((a, b) => a.key - b.key || a.idx - b.idx);
-  keyed.forEach((k, i) => { k.r.rank = i + 1; });
-  for (const { r } of keyed) {
-    if (r.previous == null) continue;
-    if (!absentLatest.has(r.person_id)) continue;
-    if (r.rank >= r.previous) continue;
-    const other = rows.find((x) => x.rank === r.previous);
-    if (!other) continue;
-    other.rank = r.rank;
-    r.rank = r.previous;
-  }
+  // Assign final ranks in raw order. A player who sat out keeps their
+  // frozen E/P and ranks wherever that number lands — they can move up
+  // if the players who played did not score enough to stay ahead of them.
+  rows.forEach((r, i) => { r.rank = i + 1; });
   for (const r of rows) {
     if (r.previous == null) {
       r.maxMvmt = null;
