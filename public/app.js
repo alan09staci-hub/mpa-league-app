@@ -100,6 +100,24 @@ function fmtClock(t) {
   const h12 = h % 12 || 12;
   return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
 }
+// Skill-range gate for joining (mirror of server/lib/league.js): the
+// league's skill band is the qualifier. Returns an error message when the
+// rating is outside the band, else null. '50+' is an age band, not a
+// rating band, so it never gates on rating.
+function skillRangeError(skill, rating) {
+  if (rating == null || Number.isNaN(Number(rating))) return null;
+  const r = Number(rating);
+  if (skill === '50+') return null;
+  if (skill === '5.0-ABOVE') {
+    return r >= 5.0 ? null : `Your DUPR rating ${r} is below this league's skill range (5.0 and above).`;
+  }
+  const m = /^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/.exec(String(skill || ''));
+  if (!m) return null;
+  const lo = Number(m[1]);
+  const hi = Number(m[2]);
+  if (r < lo || r > hi) return `Your DUPR rating ${r} is outside this league's skill range (${skill}).`;
+  return null;
+}
 function countdownTo(iso) {
   const ms = new Date(iso) - Date.now();
   if (ms <= 0) return 'now';
@@ -110,7 +128,7 @@ function countdownTo(iso) {
   return `${h}h ${m}m`;
 }
 const DUPR_SIGNUP_URL = 'https://dashboard.dupr.com/signup';
-const JOIN_PAGE_URL = 'https://capable-blini-464d32.netlify.app';
+const APP_URL = 'https://mpa-league-app.onrender.com';
 const RECLIQUE_URL = 'https://moultrie.recliquecore.com/';
 
 // ---------- maps chooser (Google / Apple, remembered per device) ----------
@@ -1559,6 +1577,9 @@ async function renderAdminBody(leagues, league) {
 
  const announceSectionHtml = `
 
+    <label>Announce</label>
+    <label class="radio"><input type="radio" name="an-mode" value="one" checked> One league</label><br>
+    <label class="radio"><input type="radio" name="an-mode" value="all"> All open leagues</label>
     <label>League</label>
     <select id="an-league">${leagues.map((l) => `<option value="${l.id}" ${league && l.id === league.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select>
     <div class="btnrow"><button class="btn" id="an-gen">Write the announcement</button></div>
@@ -2024,13 +2045,26 @@ async function renderAdminBody(leagues, league) {
   // ---- announce ----
   const anGen = document.getElementById('an-gen');
   if (anGen) {
+    document.querySelectorAll('input[name="an-mode"]').forEach((r) => {
+      r.onchange = () => {
+        const all = document.querySelector('input[name="an-mode"]:checked').value === 'all';
+        const sel = document.getElementById('an-league');
+        if (sel) sel.disabled = all;
+      };
+    });
     anGen.onclick = async () => {
       const out = document.getElementById('an-out');
-      const lid = +document.getElementById('an-league').value;
+      const mode = document.querySelector('input[name="an-mode"]:checked').value;
       try {
-        const data = await api(`/api/admin/leagues/${lid}/announce`);
-        out.innerHTML = announceHtml(data);
-        wireAnnounceCopy(data);
+        if (mode === 'all') {
+          const data = await api('/api/admin/announce-all');
+          out.innerHTML = announceAllHtml(data);
+        } else {
+          const lid = +document.getElementById('an-league').value;
+          const data = await api(`/api/admin/leagues/${lid}/announce`);
+          out.innerHTML = announceHtml(data);
+        }
+        wireAnnounceCopy();
       } catch (e) { out.innerHTML = `<div class="banner warn">${esc(e.message)}</div>`; }
     };
   }
@@ -2058,7 +2092,7 @@ function announceHtml({ league, sessions, members, memberCount, withEmail, withP
     `Three steps to join:`,
     `1. Get a free DUPR account: ${DUPR_SIGNUP_URL}`,
     `2. Become a free MPA member`,
-    `3. Join the league — sign up here: ${JOIN_PAGE_URL}`,
+    `3. Join the league — sign up here: ${APP_URL}/#/join/${league.id}`,
     ``,
     `Moultrie Pickleball Association`,
   ].join('\n');
@@ -2067,13 +2101,13 @@ function announceHtml({ league, sessions, members, memberCount, withEmail, withP
     `<p>${esc(league.type)} · Skill ${esc(league.skill)} · ${esc(league.format)}<br>${esc(league.day)}s at ${esc(fmtClock(league.time))} · Season ${esc(league.season || 'not set')} · ${fmtDateShort(league.start_date)} – ${fmtDateShort(league.stop_date)}<br>At the YMCA, 601 26th Ave SE, Moultrie, GA 31768</p>`,
     `<p><strong>Game days:</strong><br>${dayLines.map((d) => `• ${esc(d)} at ${esc(fmtClock(league.time))}`).join('<br>')}</p>`,
     `<p>Joining costs $20 (YMCA member) / $50 (non-member), paid on ReClique: <a href="${RECLIQUE_URL}">${RECLIQUE_URL}</a></p>`,
-    `<p><strong>Three steps to join:</strong><br>1. Get a free DUPR account: <a href="${DUPR_SIGNUP_URL}">${DUPR_SIGNUP_URL}</a><br>2. Become a free MPA member<br>3. Join the league — sign up here: <a href="${JOIN_PAGE_URL}">${JOIN_PAGE_URL}</a></p>`,
+    `<p><strong>Three steps to join:</strong><br>1. Get a free DUPR account: <a href="${DUPR_SIGNUP_URL}">${DUPR_SIGNUP_URL}</a><br>2. Become a free MPA member<br>3. Join the league — sign up here: <a href="${APP_URL}/#/join/${league.id}">${APP_URL}/#/join/${league.id}</a></p>`,
     `<p>Moultrie Pickleball Association</p>`,
   ].join('');
   const textDraft = [
     `New MPA league: ${league.name} — ${league.format}, ${league.day}s ${fmtClock(league.time)} at the YMCA in Moultrie.`,
     `Starts ${fmtDateShort(league.start_date)}, 8 weeks. $20 member / $50 non-member.`,
-    `Sign up (about 2 minutes): ${JOIN_PAGE_URL}`,
+    `Sign up (about 2 minutes): ${APP_URL}/#/join/${league.id}`,
     `Need a DUPR account first (free): ${DUPR_SIGNUP_URL}`,
     `— Moultrie Pickleball Association`,
   ].join('\n');
@@ -2081,6 +2115,69 @@ function announceHtml({ league, sessions, members, memberCount, withEmail, withP
   const phones = members.filter((m) => m.phone).map((m) => m.phone).join(', ');
   return `
     <div class="card"><h3>Email draft</h3>
+      <label>Subject</label><input type="text" id="an-subject" value="${esc(subject)}" readonly>
+      <div class="btnrow"><button class="btn secondary small" id="an-copy-subject">Copy subject</button>
+      <button class="btn small" id="an-copy-email">Copy email</button></div>
+      <div class="draft" id="an-email-body">${emailBodyHtml}</div>
+      <p class="fineprint">Copy keeps the links clickable when pasted into email.</p>
+    </div>
+    <div class="card"><h3>Text message draft</h3>
+      <pre class="draft-text" id="an-text-body">${esc(textDraft)}</pre>
+      <div class="btnrow"><button class="btn small" id="an-copy-text">Copy text</button></div>
+    </div>
+    <div class="card"><h3>Who it goes to — MPA members (${memberCount})</h3>
+      <p class="muted small">${withEmail} with an email on file · ${withPhone} with a phone number</p>
+      <div class="btnrow">
+        <button class="btn secondary small" id="an-copy-emails" ${emails ? '' : 'disabled'}>Copy email addresses</button>
+        <button class="btn secondary small" id="an-copy-phones" ${phones ? '' : 'disabled'}>Copy phone numbers</button>
+      </div>
+      <p class="fineprint">Nothing is sent by the app — copy the drafts and send them from your own email or phone.</p>
+    </div>
+    <div id="an-data" data-emails="${esc(emails)}" data-phones="${esc(phones)}" data-email-text="${esc(emailText)}" hidden></div>`;
+}
+
+// ---------- all-leagues announcement (client-side; nothing is sent) ----------
+// Lists every league with registration open, so each person picks the one
+// for their skill and taps through to that league's join page. Same card
+// structure and ids as announceHtml, so the copy buttons wire up the same.
+function announceAllHtml({ leagues, members, memberCount, withEmail, withPhone }) {
+  const open = leagues.filter((l) => l.registration_open !== false);
+  const subject = `New MPA leagues are open — pick yours and join`;
+  const leagueLines = open.map((l) =>
+    `• ${l.name} — ${l.type} · Skill ${l.skill} · ${l.format} · ${l.day}s ${fmtClock(l.time)} · ${fmtDateShort(l.start_date)} – ${fmtDateShort(l.stop_date)} · ${l.player_count ?? ''} player(s) — Join: ${APP_URL}/#/join/${l.id}`
+  );
+  const emailText = [
+    `New MPA leagues are open — pick the one for your skill and join.`,
+    ``,
+    ...(open.length ? leagueLines : [`No leagues are open for registration right now — check back soon.`]),
+    ``,
+    `Joining costs $20 (YMCA member) / $50 (non-member), paid on ReClique: ${RECLIQUE_URL}`,
+    ``,
+    `Three steps to join:`,
+    `1. Get a free DUPR account: ${DUPR_SIGNUP_URL}`,
+    `2. Become a free MPA member`,
+    `3. Pick your league and join: ${APP_URL}/`,
+    ``,
+    `Moultrie Pickleball Association`,
+  ].join('\n');
+  const emailBodyHtml = [
+    `<p><strong>New MPA leagues are open — pick the one for your skill and join.</strong></p>`,
+    ...(open.length ? [`<p>${open.map((l) => `• <strong>${esc(l.name)}</strong> — ${esc(l.type)} · Skill ${esc(l.skill)} · ${esc(l.format)}<br>${esc(l.day)}s ${esc(fmtClock(l.time))} · ${fmtDateShort(l.start_date)} – ${fmtDateShort(l.stop_date)} · ${l.player_count ?? ''} player(s)<br>Join: <a href="${APP_URL}/#/join/${l.id}">${APP_URL}/#/join/${l.id}</a>`).join('<br><br>')}</p>`] : [`<p>No leagues are open for registration right now — check back soon.</p>`]),
+    `<p>Joining costs $20 (YMCA member) / $50 (non-member), paid on ReClique: <a href="${RECLIQUE_URL}">${RECLIQUE_URL}</a></p>`,
+    `<p><strong>Three steps to join:</strong><br>1. Get a free DUPR account: <a href="${DUPR_SIGNUP_URL}">${DUPR_SIGNUP_URL}</a><br>2. Become a free MPA member<br>3. Pick your league and join: <a href="${APP_URL}/">${APP_URL}/</a></p>`,
+    `<p>Moultrie Pickleball Association</p>`,
+  ].join('');
+  const textDraft = [
+    `New MPA leagues are open — pick the one for your skill and join.`,
+    ...open.map((l) => `• ${l.name} (${l.skill}, ${l.day}s ${fmtClock(l.time)})`),
+    `See them all and join: ${APP_URL}/`,
+    `$20 member / $50 non-member. Need a DUPR account first (free): ${DUPR_SIGNUP_URL}`,
+    `— Moultrie Pickleball Association`,
+  ].join('\n');
+  const emails = members.filter((m) => m.email).map((m) => m.email).join(', ');
+  const phones = members.filter((m) => m.phone).map((m) => m.phone).join(', ');
+  return `
+    <div class="card"><h3>Email draft — all open leagues (${open.length})</h3>
       <label>Subject</label><input type="text" id="an-subject" value="${esc(subject)}" readonly>
       <div class="btnrow"><button class="btn secondary small" id="an-copy-subject">Copy subject</button>
       <button class="btn small" id="an-copy-email">Copy email</button></div>
@@ -2215,6 +2312,7 @@ async function renderJoinPage(leagueId) {
       </div>
       <div id="j-step2" class="card" style="${step1Done ? '' : 'display:none'}">
         <h3>Step 2 — Your details</h3>
+        <p class="fineprint" id="j-member-note"></p>
         <label>Full name</label><input type="text" id="j-name" value="${prefill ? esc(prefill.person.name) : ''}">
         <div class="field-row">
           <div><label>Email</label><input type="text" id="j-email" value="${prefill && prefill.member ? esc(prefill.member.email || '') : ''}"></div>
@@ -2231,10 +2329,29 @@ async function renderJoinPage(leagueId) {
       <p class="muted small">A new season reaches existing members as a join card — signing up again never repeats the DUPR and member steps.</p>`;
     if (!detail.registrationOpen) return;
     document.getElementById('j-league').onchange = (e) => { location.hash = `#/join/${e.target.value}`; };
-    document.getElementById('j-to2')?.addEventListener('click', () => {
+    document.getElementById('j-to2')?.addEventListener('click', async () => {
       const err = document.getElementById('j-err1');
-      if (!document.getElementById('j-dupr').value.trim()) { err.textContent = 'Enter your DUPR ID.'; return; }
-      if (!document.getElementById('j-rating').value) { err.textContent = 'Enter your DUPR doubles rating.'; return; }
+      const dupr = document.getElementById('j-dupr').value.trim();
+      const ratingVal = document.getElementById('j-rating').value;
+      if (!dupr) { err.textContent = 'Enter your DUPR ID.'; return; }
+      if (!ratingVal) { err.textContent = 'Enter your DUPR doubles rating.'; return; }
+      const rating = +ratingVal;
+      // The league's skill band is the qualifier — checked here and again
+      // on the server when the sign-up is submitted.
+      const skillErr = skillRangeError(league.skill, rating);
+      if (skillErr) { err.textContent = skillErr; return; }
+      // Member check: a DUPR ID already on file means they're an MPA
+      // member, so welcome them back and fill in their name. A miss just
+      // means they're new — they become a free member when they sign up.
+      let found = null;
+      try { ({ member: found } = await api(`/api/members/by-dupr/${encodeURIComponent(dupr)}`)); } catch { /* not a member yet */ }
+      const note = document.getElementById('j-member-note');
+      if (found) {
+        document.getElementById('j-name').value = found.name;
+        if (note) note.textContent = `Welcome back, ${found.name} — you're already an MPA member. Your name is filled in below.`;
+      } else if (note) {
+        note.textContent = `No member with that DUPR ID yet — you'll become a free MPA member when you sign up below.`;
+      }
       document.getElementById('j-step1').style.display = 'none';
       document.getElementById('j-step2').style.display = '';
     });
