@@ -1,11 +1,13 @@
 'use strict';
 // Admin passcode auth. The passcode comes ONLY from the ADMIN_PASSCODE
 // environment variable — it is never hardcoded and never stored in the
-// database. A successful login issues a random token kept in memory
-// (single-instance service) and set as an httpOnly cookie.
+// database. A successful login issues a random token whose SHA-256 hash is
+// stored in the admin_tokens table (never the raw token), set as an
+// httpOnly cookie. Tokens live in the database, so a deploy or restart no
+// longer logs Admin out; they still expire 12 hours after issue.
 const crypto = require('crypto');
+const { pool } = require('../db');
 
-const tokens = new Map(); // token -> { createdAt }
 const TOKEN_TTL_MS = 12 * 3600 * 1000;
 
 function passcodeConfigured() {
@@ -21,24 +23,38 @@ function checkPasscode(candidate) {
   return crypto.timingSafeEqual(a, b);
 }
 
-function issueToken() {
+function hashToken(token) {
+  return crypto.createHash('sha256').update(String(token)).digest('hex');
+}
+
+async function issueToken() {
   const token = crypto.randomBytes(32).toString('hex');
-  tokens.set(token, { createdAt: Date.now() });
+  const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
+  await pool.query(
+    'INSERT INTO admin_tokens (token_hash, expires_at) VALUES ($1, $2)',
+    [hashToken(token), expiresAt]
+  );
   return token;
 }
 
-function revokeToken(token) {
-  tokens.delete(token);
+async function revokeToken(token) {
+  if (!token) return;
+  await pool.query('DELETE FROM admin_tokens WHERE token_hash = $1', [hashToken(token)]);
 }
 
-function isValidToken(token) {
+async function isValidToken(token) {
   if (!token) return false;
-  const rec = tokens.get(token);
-  if (!rec) return false;
-  if (Date.now() - rec.createdAt > TOKEN_TTL_MS) {
-    tokens.delete(token);
+  const { rows } = await pool.query(
+    'SELECT expires_at FROM admin_tokens WHERE token_hash = $1',
+    [hashToken(token)]
+  );
+  if (!rows.length) return false;
+  if (new Date(rows[0].expires_at).getTime() <= Date.now()) {
+    await pool.query('DELETE FROM admin_tokens WHERE token_hash = $1', [hashToken(token)]);
     return false;
   }
+  // Opportunistic cleanup of expired tokens.
+  await pool.query('DELETE FROM admin_tokens WHERE expires_at <= now()').catch(() => {});
   return true;
 }
 
@@ -51,11 +67,11 @@ function tokenFromReq(req) {
   return null;
 }
 
-function requireAdmin(req, res, next) {
+async function requireAdmin(req, res, next) {
   if (!passcodeConfigured()) {
     return res.status(503).json({ error: 'Admin passcode is not configured on this server.' });
   }
-  if (!isValidToken(tokenFromReq(req))) {
+  if (!(await isValidToken(tokenFromReq(req)))) {
     return res.status(401).json({ error: 'Admin sign-in required.' });
   }
   return next();
@@ -63,8 +79,8 @@ function requireAdmin(req, res, next) {
 
 // Optional: true when the request carries a valid admin token (used to let
 // an organizer save any score, while players are limited to their court).
-function isAdmin(req) {
-  return passcodeConfigured() && isValidToken(tokenFromReq(req));
+async function isAdmin(req) {
+  return passcodeConfigured() && (await isValidToken(tokenFromReq(req)));
 }
 
 module.exports = {
