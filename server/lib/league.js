@@ -306,6 +306,24 @@ async function createLeagueWithSessions(client, fields) {
   return league;
 }
 
+// Skill-range gate for joining: a league's skill band is the qualifier.
+// Returns an error message when the rating is outside the band, else null.
+// '50+' is an age band, not a rating band, so it never gates on rating.
+function skillRangeError(skill, rating) {
+  if (rating == null || Number.isNaN(Number(rating))) return null;
+  const r = Number(rating);
+  if (skill === '50+') return null;
+  if (skill === '5.0-ABOVE') {
+    return r >= 5.0 ? null : `Your DUPR rating ${r} is below this league's skill range (5.0 and above).`;
+  }
+  const m = /^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/.exec(String(skill || ''));
+  if (!m) return null;
+  const lo = Number(m[1]);
+  const hi = Number(m[2]);
+  if (r < lo || r > hi) return `Your DUPR rating ${r} is outside this league's skill range (${skill}).`;
+  return null;
+}
+
 module.exports = {
   pool,
   effectiveStatus,
@@ -324,4 +342,5 @@ module.exports = {
   createLeagueWithSessions,
   dateOnly,
   normalizeLeague,
+  skillRangeError,
 };
