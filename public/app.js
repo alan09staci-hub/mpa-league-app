@@ -1579,7 +1579,8 @@ async function renderAdminBody(leagues, league) {
 
     <label>Announce</label>
     <label class="radio"><input type="radio" name="an-mode" value="one" checked> One league</label><br>
-    <label class="radio"><input type="radio" name="an-mode" value="all"> All open leagues</label>
+    <label class="radio"><input type="radio" name="an-mode" value="all"> All open leagues</label><br>
+    <label class="radio"><input type="radio" name="an-mode" value="join"> Join MPA</label>
     <label>League</label>
     <select id="an-league">${leagues.map((l) => `<option value="${l.id}" ${league && l.id === league.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select>
     <div class="btnrow"><button class="btn" id="an-gen">Write the announcement</button></div>
@@ -2047,9 +2048,9 @@ async function renderAdminBody(leagues, league) {
   if (anGen) {
     document.querySelectorAll('input[name="an-mode"]').forEach((r) => {
       r.onchange = () => {
-        const all = document.querySelector('input[name="an-mode"]:checked').value === 'all';
+        const one = document.querySelector('input[name="an-mode"]:checked').value === 'one';
         const sel = document.getElementById('an-league');
-        if (sel) sel.disabled = all;
+        if (sel) sel.disabled = !one;
       };
     });
     anGen.onclick = async () => {
@@ -2059,6 +2060,9 @@ async function renderAdminBody(leagues, league) {
         if (mode === 'all') {
           const data = await api('/api/admin/announce-all');
           out.innerHTML = announceAllHtml(data);
+        } else if (mode === 'join') {
+          const data = await api('/api/admin/announce-all');
+          out.innerHTML = announceJoinHtml(data);
         } else {
           const lid = +document.getElementById('an-league').value;
           const data = await api(`/api/admin/leagues/${lid}/announce`);
@@ -2199,6 +2203,73 @@ function announceAllHtml({ leagues, members, memberCount, withEmail, withPhone }
     <div id="an-data" data-emails="${esc(emails)}" data-phones="${esc(phones)}" data-email-text="${esc(emailText)}" hidden></div>`;
 }
 
+// ---------- Join MPA invitation (client-side; nothing is sent) ----------
+// A general invite to join the association — no league attached. Same card
+// structure and ids as the other drafts, so the copy and send buttons wire
+// up the same, plus an "Invite someone new" card that texts the invite to
+// a phone number typed in by the organizer.
+function announceJoinHtml({ members, memberCount, withEmail, withPhone }) {
+  const subject = `Join the Moultrie Pickleball Association — free to join`;
+  const emailText = [
+    `Join the Moultrie Pickleball Association — membership is free.`,
+    ``,
+    `MPA runs ladder leagues at the YMCA in Moultrie, GA — Coed Doubles, Women's Doubles, and more, for every skill level. Pick the league for your skill and play every week.`,
+    ``,
+    `Three steps to join:`,
+    `1. Get a free DUPR account: ${DUPR_SIGNUP_URL}`,
+    `2. Become a free MPA member`,
+    `3. Pick your league and join: ${APP_URL}/`,
+    ``,
+    `Joining a league costs $20 (YMCA member) / $50 (non-member), paid on ReClique: ${RECLIQUE_URL}`,
+    ``,
+    `Moultrie Pickleball Association`,
+  ].join('\n');
+  const emailBodyHtml = [
+    `<p><strong>Join the Moultrie Pickleball Association — membership is free.</strong></p>`,
+    `<p>MPA runs ladder leagues at the YMCA in Moultrie, GA — Coed Doubles, Women's Doubles, and more, for every skill level. Pick the league for your skill and play every week.</p>`,
+    `<p><strong>Three steps to join:</strong><br>1. Get a free DUPR account: <a href="${DUPR_SIGNUP_URL}">${DUPR_SIGNUP_URL}</a><br>2. Become a free MPA member<br>3. Pick your league and join: <a href="${APP_URL}/">${APP_URL}/</a></p>`,
+    `<p>Joining a league costs $20 (YMCA member) / $50 (non-member), paid on ReClique: <a href="${RECLIQUE_URL}">${RECLIQUE_URL}</a></p>`,
+    `<p>Moultrie Pickleball Association</p>`,
+  ].join('');
+  const textDraft = [
+    `Join the Moultrie Pickleball Association — it's free.`,
+    `1. Get a free DUPR account: ${DUPR_SIGNUP_URL}`,
+    `2. Become a free MPA member`,
+    `3. Pick your league and join: ${APP_URL}/`,
+    `Leagues are $20 member / $50 non-member.`,
+    `— Moultrie Pickleball Association`,
+  ].join('\n');
+  const emails = members.filter((m) => m.email).map((m) => m.email).join(', ');
+  const phones = members.filter((m) => m.phone).map((m) => m.phone).join(', ');
+  return `
+    <div class="card"><h3>Email draft — Join MPA</h3>
+      <label>Subject</label><input type="text" id="an-subject" value="${esc(subject)}" readonly>
+      <div class="btnrow"><button class="btn secondary small" id="an-copy-subject">Copy subject</button>
+      <button class="btn small" id="an-copy-email">Copy email</button>${emails ? `<a class="btn small" href="mailto:${esc(emails.replace(/ /g, ''))}?subject=${encodeURIComponent(subject)}&amp;body=${encodeURIComponent(emailText)}">Send by email</a>` : ''}</div>
+      <div class="draft" id="an-email-body">${emailBodyHtml}</div>
+      <p class="fineprint">Copy keeps the links clickable when pasted into email.</p>
+    </div>
+    <div class="card"><h3>Text message draft</h3>
+      <pre class="draft-text" id="an-text-body">${esc(textDraft)}</pre>
+      <div class="btnrow"><button class="btn small" id="an-copy-text">Copy text</button>${phones ? `<a class="btn small" href="sms:${esc(phones.replace(/ /g, ''))}?&amp;body=${encodeURIComponent(textDraft)}">Send by text</a>` : ''}</div>
+    </div>
+    <div class="card"><h3>Invite someone new</h3>
+      <p class="muted small">Text the Join MPA invite to someone who isn't a member yet — type their number and send.</p>
+      <label>Phone number</label><input type="tel" id="an-invite-phone" placeholder="e.g. 229-555-0123">
+      <div class="btnrow"><button class="btn" id="an-invite-send">Text the invite</button></div>
+      <p class="fineprint" id="an-invite-msg"></p>
+    </div>
+    <div class="card"><h3>Who it goes to — MPA members (${memberCount})</h3>
+      <p class="muted small">${withEmail} with an email on file · ${withPhone} with a phone number</p>
+      <div class="btnrow">
+        <button class="btn secondary small" id="an-copy-emails" ${emails ? '' : 'disabled'}>Copy email addresses</button>
+        <button class="btn secondary small" id="an-copy-phones" ${phones ? '' : 'disabled'}>Copy phone numbers</button>
+      </div>
+      <p class="fineprint">Nothing is sent by the app — copy the drafts and send them from your own email or phone.</p>
+    </div>
+    <div id="an-data" data-emails="${esc(emails)}" data-phones="${esc(phones)}" data-email-text="${esc(emailText)}" hidden></div>`;
+}
+
 async function copyRich(html, text) {
   try {
     const item = new ClipboardItem({
@@ -2236,6 +2307,16 @@ function wireAnnounceCopy(data) {
     try { await navigator.clipboard.writeText(d.dataset.phones); toast('Phone numbers copied.'); }
     catch { toast('Copy failed.'); }
   };
+  // Join MPA invite: text the invite to a number typed in by the organizer.
+  const inviteBtn = document.getElementById('an-invite-send');
+  if (inviteBtn) {
+    inviteBtn.onclick = () => {
+      const num = document.getElementById('an-invite-phone').value.replace(/[^+0-9]/g, '');
+      const msg = document.getElementById('an-invite-msg');
+      if (!num) { if (msg) msg.textContent = 'Enter a phone number first.'; return; }
+      location.href = `sms:${num}?&body=${encodeURIComponent(document.getElementById('an-text-body').textContent)}`;
+    };
+  }
 }
 
 // ---------- members page ----------
