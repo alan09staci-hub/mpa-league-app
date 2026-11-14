@@ -1533,6 +1533,7 @@ async function renderAdminBody(leagues, league) {
         <button class="btn small" data-adj-save="${s.person_id}">Save</button></span></div>`).join('') || '<p class="muted">No players yet.</p>';
 
     const upcomingSessions = l.sessions.filter((s) => s.status === 'upcoming');
+    const curSession = l.sessions.find((s) => s.status !== 'completed') || l.sessions[l.sessions.length - 1];
     const moveHtml = upcomingSessions.length ? `
       <label>Game day to move</label>
       <select id="gt-move-session">${upcomingSessions.map((s) => `<option value="${s.id}">Week ${s.session_number} — ${fmtDateShort(s.date)}</option>`).join('')}</select>
@@ -1542,7 +1543,7 @@ async function renderAdminBody(leagues, league) {
       <p class="fineprint" id="gt-move-msg"></p>` : '<p class="muted">No upcoming game days to move.</p>';
     toolsHtml = `
       <label>Game day</label>
-      <select id="gt-session">${l.sessions.map((s) => `<option value="${s.id}">Session ${s.session_number} — ${fmtDateShort(s.starts_at)} (${s.status})</option>`).join('')}</select>
+      <select id="gt-session">${l.sessions.map((s) => `<option value="${s.id}" ${curSession && s.id === curSession.id ? 'selected' : ''}>Session ${s.session_number} — ${fmtDateShort(s.starts_at)} (${s.status})</option>`).join('')}</select>
       <div class="btnrow">
         <button class="btn" id="gt-build">Build / Rebuild schedule</button>
         <button class="btn green" id="gt-finish">Finish game day</button>
