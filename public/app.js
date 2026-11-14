@@ -1083,14 +1083,14 @@ function renderRsvps(leagueId, sessionId, data, id) {
     const fp = isPlaying && p.opted_in_at
       ? `<div class="fp">Opted in ${new Date(p.opted_in_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>` : '';
     const finished = data.session.status === 'completed';
-    const btn = isMe
+    const btn = (adminView && data.isAdmin && !finished)
       ? (isPlaying
-        ? `<button class="btn secondary small" data-act="out" data-pid="${p.person_id}">Opt out</button>`
-        : `<button class="btn green small" data-act="in" data-pid="${p.person_id}">Opt in</button>`)
-      : (adminView && data.isAdmin && !finished
+        ? `<button class="btn secondary small" data-act="admin-out" data-pid="${p.person_id}">Opt out</button>`
+        : `<button class="btn green small" data-act="admin-in" data-pid="${p.person_id}">Opt in</button>`)
+      : (isMe
         ? (isPlaying
-          ? `<button class="btn secondary small" data-act="admin-out" data-pid="${p.person_id}">Opt out</button>`
-          : `<button class="btn green small" data-act="admin-in" data-pid="${p.person_id}">Opt in</button>`)
+          ? `<button class="btn secondary small" data-act="out" data-pid="${p.person_id}">Opt out</button>`
+          : `<button class="btn green small" data-act="in" data-pid="${p.person_id}">Opt in</button>`)
         : '');
     return `<div class="person-row ${!id ? 'tappable' : ''}" data-pid="${p.person_id}">
       <span class="rank">${p.rank ?? '—'}</span>
