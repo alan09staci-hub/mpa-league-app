@@ -810,8 +810,10 @@ async function renderGameDay(leagueId, sessionId) {
     if (gdTab === 'rsvps') renderRsvps(leagueId, sessionId, data, id);
     if (gdTab === 'groups') renderGroups(data, id);
     if (gdTab === 'matches') renderMatches(leagueId, sessionId, data, id);
-    // Refresh quietly, but never while the player is typing a score.
-    refreshTimer = setInterval(() => {
+   // Refresh quietly, but never while the player is typing a score.
+clearInterval(refreshTimer);
+refreshTimer = setInterval(() => {
+
       const ae = document.activeElement;
       if (ae && ae.tagName === 'INPUT') return;
       if (modalRoot.innerHTML) return;
