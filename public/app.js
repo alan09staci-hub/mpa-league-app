@@ -1473,6 +1473,14 @@ async function renderAdminBody(leagues, league) {
         <input type="number" step="0.5" min="0" class="adj-input" id="adj-${s.person_id}" value="${Number(s.penalty - s.missPenalty).toFixed(1)}">
         <button class="btn small" data-adj-save="${s.person_id}">Save</button></span></div>`).join('') || '<p class="muted">No players yet.</p>';
 
+    const upcomingSessions = l.sessions.filter((s) => s.status === 'upcoming');
+    const moveHtml = upcomingSessions.length ? `
+      <label>Game day to move</label>
+      <select id="gt-move-session">${upcomingSessions.map((s) => `<option value="${s.id}">Week ${s.session_number} — ${fmtDateShort(s.date)}</option>`).join('')}</select>
+      <label>New date</label>
+      <input type="date" id="gt-move-date">
+      <div class="btnrow"><button class="btn" id="gt-move">Move game day</button></div>
+      <p class="fineprint" id="gt-move-msg"></p>` : '<p class="muted">No upcoming game days to move.</p>';
     toolsHtml = `
       <label>Game day</label>
       <select id="gt-session">${l.sessions.map((s) => `<option value="${s.id}">Session ${s.session_number} — ${fmtDateShort(s.starts_at)} (${s.status})</option>`).join('')}</select>
@@ -1484,7 +1492,10 @@ async function renderAdminBody(leagues, league) {
         <button class="btn secondary" id="gt-alldays">All Game Days</button>
       </div>
       <p class="fineprint" id="gt-msg"></p>
-      <p class="fineprint">Finish asks "finish anyway?" if games are unscored. Rebuilding keeps scores where the same four players stay together. The Court Sheet lists each court with its players and a check-off box by every name — print it before the night.</p>`;
+      <p class="fineprint">Finish asks "finish anyway?" if games are unscored. Rebuilding keeps scores where the same four players stay together. The Court Sheet lists each court with its players and a check-off box by every name — print it before the night.</p>
+      <h3>Move a game day</h3>
+      ${moveHtml}
+      <p class="fineprint">Moving a game day shifts that day and every game day after it by the same amount, so the season stays weekly — if a night is rained out, moving it a week pushes the whole rest of the season back a week.</p>`;
   }
 
   const announceHtml = `
@@ -1500,7 +1511,7 @@ async function renderAdminBody(leagues, league) {
     section('members', 'Members', 'Free MPA member directory, with DUPR ratings and an Edit button per member.', membersHtml) +
     section('players', 'Players', 'The league roster: add, edit, or remove players.', playersHtml) +
     section('penalties', 'Standings penalties', 'Miss penalties and Admin adjustments per player.', penaltiesHtml) +
-    section('tools', 'Game day tools', 'Finish a game day, build the schedule, and print the court sheet.', toolsHtml) +
+    section('tools', 'Game day tools', 'Finish a game day, build the schedule, print the court sheet, and move a game day.', toolsHtml) +
     section('announce', 'Announce this league', 'Writes the email and text announcement for a league, with copy buttons.', announceHtml);
 
   body.querySelectorAll('.admin-section > button.head').forEach((b) => {
@@ -1853,6 +1864,26 @@ async function renderAdminBody(leagues, league) {
       const l = await api(`/api/leagues/${league.id}`);
       openAllDays(l.league, l.sessions);
     };
+    const moveBtn = document.getElementById('gt-move');
+    if (moveBtn) {
+      moveBtn.onclick = async () => {
+        const msg = document.getElementById('gt-move-msg');
+        const sid = +document.getElementById('gt-move-session').value;
+        const newDate = document.getElementById('gt-move-date').value;
+        if (!newDate) { msg.textContent = 'Pick a new date first.'; return; }
+        try {
+          const r = await api(`/api/admin/leagues/${league.id}/sessions/${sid}/date`, { method: 'PATCH', body: JSON.stringify({ gameDate: newDate }) });
+          const moved = r.sessions.find((s) => s.id === sid);
+          const later = r.sessions.filter((s) => s.session_number > moved.session_number);
+          const summary = `Week ${moved.session_number} moved to ${fmtDateShort(moved.date)}.` +
+            (later.length ? ` Weeks ${later[0].session_number}–${later[later.length - 1].session_number} shifted to ${later.map((s) => fmtDateShort(s.date)).join(', ')}.` : '');
+          toast('Game day moved.');
+          await renderAdmin();
+          const m2 = document.getElementById('gt-move-msg');
+          if (m2) m2.textContent = summary;
+        } catch (e) { msg.textContent = e.message; }
+      };
+    }
   }
 
   // ---- announce ----
