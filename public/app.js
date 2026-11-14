@@ -91,6 +91,15 @@ function fmtTimeShort(iso) {
   const d = new Date(iso);
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
+function fmtClock(t) {
+  const parts = String(t || '').split(':');
+  const h = Number(parts[0]);
+  const m = Number(parts[1] || 0);
+  if (Number.isNaN(h)) return String(t || '');
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
 function countdownTo(iso) {
   const ms = new Date(iso) - Date.now();
   if (ms <= 0) return 'now';
@@ -239,6 +248,7 @@ function route() {
   const h = raw.split('?')[0];
   const parts = h.split('/').filter(Boolean);
   if (parts[0] === 'admin') return renderAdmin();
+  if (parts[0] === 'members' && parts[1]) return renderMemberProfile(+parts[1]);
   if (parts[0] === 'members') return renderMembersPage();
   if (parts[0] === 'join') return renderJoinPage(parts[1] ? +parts[1] : null);
   if (parts[0] === 'myleagues') return renderMyLeagues();
@@ -309,7 +319,7 @@ function leagueCardHtml(l) {
         <span class="info">
           <span class="name">${esc(l.name)}</span><br>
           <span class="sub">${esc(l.type)} · ${esc(l.skill)} · ${esc(l.format)}<br>
-          ${esc(l.day)}s ${esc(l.time.slice(0, 5))} · ${l.player_count ?? ''} player(s)${l.season ? ` · ${esc(l.season)}` : ''}</span>
+          ${esc(l.day)}s ${esc(fmtClock(l.time))} · ${l.player_count ?? ''} player(s)${l.season ? ` · ${esc(l.season)}` : ''}</span>
         </span>
         <button class="btn secondary small" data-fav="${l.id}">${isFav(l.id) ? '★ Favorited' : '☆ Favorite'}</button>
         <a class="btn small" href="#/league/${l.id}">View</a>
@@ -351,7 +361,7 @@ async function renderLanding(id, mine) {
       ${newSeasons.length ? `<h2>A new season is open</h2>
         ${newSeasons.map((l) => `<div class="card new-season">
           <strong>${esc(l.name)}</strong><br>
-          <span class="muted small">${esc(l.type)} · ${esc(l.skill)} · ${esc(l.format)} · ${esc(l.day)}s ${esc(l.time.slice(0, 5))} · ${esc(l.season || 'Season not set')}</span>
+          <span class="muted small">${esc(l.type)} · ${esc(l.skill)} · ${esc(l.format)} · ${esc(l.day)}s ${esc(fmtClock(l.time))} · ${esc(l.season || 'Season not set')}</span>
           <div class="btnrow"><a class="btn green small" href="#/join/${l.id}">Join this league</a></div>
         </div>`).join('')}` : ''}
       <div class="btnrow"><a class="btn secondary" href="#/members">Members</a><a class="btn secondary" href="#/myleagues">My Leagues</a></div>`;
@@ -485,7 +495,7 @@ async function renderCover() {
       slot.innerHTML = '<p class="muted">No leagues are open yet.</p>';
       return;
     }
-    slot.innerHTML = `<select id="joinPickLeague">${leagues.map((l) => `<option value="${l.id}">${esc(l.name)} — ${esc(l.day)}s ${esc(l.time.slice(0, 5))}</option>`).join('')}</select>
+    slot.innerHTML = `<select id="joinPickLeague">${leagues.map((l) => `<option value="${l.id}">${esc(l.name)} — ${esc(l.day)}s ${esc(fmtClock(l.time))}</option>`).join('')}</select>
       <div class="btnrow"><button class="btn green small" id="joinPickGo">Join this league</button></div>`;
     document.getElementById('joinPickGo').onclick = () => {
       location.hash = `#/join/${document.getElementById('joinPickLeague').value}`;
@@ -499,32 +509,214 @@ async function renderCover() {
 }
 
 // ---------- members directory (shared) ----------
+// Split "Alan Cortez" into first/last for the WRPA-style tile (bold last name).
+function splitName(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) return { first: parts[0] || '', last: '' };
+  return { first: parts.slice(0, -1).join(' '), last: parts[parts.length - 1] };
+}
+function isUsa(country) {
+  const c = String(country || '').trim().toLowerCase();
+  return c === 'usa' || c === 'us' || c === 'united states' || c === 'united states of america';
+}
+function fmtRating(v) {
+  return v == null || v === '' ? '—' : Number(v).toFixed(3);
+}
+function ratingInRange(v, range) {
+  if (!range) return true;
+  if (v == null || v === '') return false;
+  const n = Number(v);
+  if (range === '2') return n >= 2 && n < 3;
+  if (range === '3') return n >= 3 && n < 3.5;
+  if (range === '3.5') return n >= 3.5 && n < 5;
+  if (range === '5') return n >= 5;
+  return true;
+}
+function ageInRange(age, range) {
+  if (!range) return true;
+  if (age == null) return false;
+  if (range === 'u30') return age < 30;
+  if (range === '30') return age >= 30 && age < 50;
+  if (range === '50') return age >= 50;
+  return true;
+}
 function memberTileHtml(m) {
   const initial = (m.name[0] || '?').toUpperCase();
-  const nameInner = m.dupr_profile_url
-    ? `<a href="${esc(m.dupr_profile_url)}" target="_blank" rel="noopener">${esc(m.name)}</a>`
-    : esc(m.name);
-  const meta = [m.resides, m.age ? `Age ${m.age}` : null, m.country].filter(Boolean).join(' · ');
-  return `<div class="member-tile">
+  const { first, last } = splitName(m.name);
+  const flag = isUsa(m.country) ? ' 🇺🇸' : '';
+  const nameLink = `<a href="#/members/${m.id}">${esc(first)}${last ? ` <strong>${esc(last)}</strong>` : ''}</a>`;
+  return `<div class="member-tile" data-mid="${m.id}">
+    <div class="tile-front">
+      <button class="flip-btn" data-flip="${m.id}" title="Flip card">Flip ↻</button>
+      ${m.photo_url ? `<img class="photo" src="${esc(m.photo_url)}" alt="">` : `<span class="avatar big">${initial}</span>`}
+      <div class="tile-row">
+        <span><span class="lbl">Resides</span><strong>${esc([m.resides, m.country].filter(Boolean).join(', ') || '—')}</strong></span>
+        <span><span class="lbl">Age</span><strong>${m.age ?? '—'}</strong></span>
+      </div>
+      <div class="tile-name">${nameLink}${flag}</div>
+      <div class="tile-am">AMATEUR</div>
+    </div>
+    <div class="tile-back">
+      <button class="flip-btn" data-flip="${m.id}" title="Flip card">Flip ↻</button>
+      <div class="tile-back-rows">
+        <div><span class="lbl">DUPR ID</span><strong>${m.dupr_id ? esc(m.dupr_id) : '—'}</strong></div>
+        <div><span class="lbl">Doubles</span><strong>${fmtRating(m.dupr_rating)}</strong></div>
+        <div><span class="lbl">Singles</span><strong>${fmtRating(m.singles_rating)}</strong></div>
+        <div><span class="lbl">Skinny Singles</span><strong>${fmtRating(m.skinny_rating)}</strong></div>
+      </div>
+      <div class="tile-name">${nameLink}</div>
+    </div>
+  </div>`;
+}
+function memberListRowHtml(m) {
+  const initial = (m.name[0] || '?').toUpperCase();
+  const { first, last } = splitName(m.name);
+  const flag = isUsa(m.country) ? ' 🇺🇸' : '';
+  const meta = [m.resides, m.age != null ? `Age ${m.age}` : null, m.country].filter(Boolean).join(' · ');
+  return `<div class="member-list-row">
     ${m.photo_url ? `<img class="photo" src="${esc(m.photo_url)}" alt="">` : `<span class="avatar big">${initial}</span>`}
-    <span class="info"><span class="nm">${nameInner}</span><br>
-    <span class="sub">${m.dupr_id ? `DUPR ${esc(m.dupr_id)} · Rating ${m.dupr_rating ?? '—'}` : 'No DUPR on file'}</span>
+    <span class="info"><span class="nm"><a href="#/members/${m.id}">${esc(first)}${last ? ` <strong>${esc(last)}</strong>` : ''}</a>${flag}</span><br>
+    <span class="sub">${m.dupr_id ? `DUPR ${esc(m.dupr_id)} · Rating ${fmtRating(m.dupr_rating)}` : 'No DUPR on file'}</span>
     ${meta ? `<br><span class="sub">${esc(meta)}</span>` : ''}
-    ${m.leagues && m.leagues.length ? `<br><span class="badge done">${m.leagues.map(esc).join(', ')}</span>` : '<br><span class="badge">Member</span>'}
-    </span>
+    <br><span class="sub">AMATEUR</span></span>
   </div>`;
 }
 
 async function renderMembersDirectory(container) {
-  container.innerHTML = `<div class="searchrow"><input type="text" id="memSearch" placeholder="Search members…" autocomplete="off"></div>
+  container.innerHTML = `
+    <p class="dupr-powered">Ratings powered by <strong>DUPR</strong></p>
+    <div class="card filter-bar">
+      <div class="filter-grid">
+        <label>Search by Name<input type="text" id="memQ" placeholder="Name" autocomplete="off"></label>
+        <label>Age<select id="memAge"><option value="">All</option><option value="u30">Under 30</option><option value="30">30–49</option><option value="50">50+</option></select></label>
+        <label>Gender<select id="memGender"><option value="">All</option><option>Female</option><option>Male</option></select></label>
+        <label>Country<select id="memCountry"><option value="">All</option></select></label>
+        <label>Doubles<select id="memDbl"><option value="">All</option><option value="2">2.0–2.99</option><option value="3">3.0–3.49</option><option value="3.5">3.5–4.49</option><option value="5">5.0+</option></select></label>
+        <label>Singles<select id="memSgl"><option value="">All</option><option value="2">2.0–2.99</option><option value="3">3.0–3.49</option><option value="3.5">3.5–4.49</option><option value="5">5.0+</option></select></label>
+        <label>Skinny<select id="memSkin"><option value="">All</option><option value="2">2.0–2.99</option><option value="3">3.0–3.49</option><option value="3.5">3.5–4.49</option><option value="5">5.0+</option></select></label>
+      </div>
+      <div class="btnrow"><button class="btn" id="memSearchBtn">🔍 Search</button><button class="btn secondary" id="memClearBtn">Clear filters</button></div>
+    </div>
+    <div class="dir-head"><h2>Players</h2>
+      <div class="view-toggle"><button id="memListBtn">☰ List View</button><button id="memTileBtn" class="active">▦ Tile View</button></div>
+    </div>
     <div id="memTiles"><p class="muted">Loading members…</p></div>`;
   const { members } = await api('/api/members').catch(() => ({ members: [] }));
-  const draw = (q) => {
-    const list = members.filter((m) => !q || m.name.toLowerCase().includes(q));
-    document.getElementById('memTiles').innerHTML = list.map(memberTileHtml).join('') || '<p class="muted">No members yet.</p>';
+  const countrySel = document.getElementById('memCountry');
+  [...new Set(members.map((m) => m.country).filter(Boolean))].sort().forEach((c) => {
+    const o = document.createElement('option');
+    o.textContent = c;
+    countrySel.appendChild(o);
+  });
+  let view = 'tile';
+  const draw = () => {
+    const q = (document.getElementById('memQ').value || '').trim().toLowerCase();
+    const age = document.getElementById('memAge').value;
+    const gender = document.getElementById('memGender').value;
+    const country = document.getElementById('memCountry').value;
+    const dbl = document.getElementById('memDbl').value;
+    const sgl = document.getElementById('memSgl').value;
+    const skin = document.getElementById('memSkin').value;
+    const list = members.filter((m) =>
+      (!q || m.name.toLowerCase().includes(q)) &&
+      ageInRange(m.age, age) &&
+      (!gender || (m.gender || '').toLowerCase() === gender.toLowerCase()) &&
+      (!country || m.country === country) &&
+      ratingInRange(m.dupr_rating, dbl) &&
+      ratingInRange(m.singles_rating, sgl) &&
+      ratingInRange(m.skinny_rating, skin)
+    );
+    const el = document.getElementById('memTiles');
+    if (!list.length) { el.innerHTML = '<p class="muted">No members match those filters.</p>'; return; }
+    el.innerHTML = view === 'tile'
+      ? `<div class="mem-grid">${list.map(memberTileHtml).join('')}</div>`
+      : list.map(memberListRowHtml).join('');
+    el.querySelectorAll('[data-flip]').forEach((b) => {
+      b.onclick = (e) => { e.preventDefault(); b.closest('.member-tile').classList.toggle('flipped'); };
+    });
   };
-  draw('');
-  document.getElementById('memSearch').addEventListener('input', (e) => draw(e.target.value.toLowerCase()));
+  draw();
+  document.getElementById('memQ').addEventListener('input', draw);
+  ['memAge', 'memGender', 'memCountry', 'memDbl', 'memSgl', 'memSkin'].forEach((id) => {
+    document.getElementById(id).addEventListener('change', draw);
+  });
+  document.getElementById('memSearchBtn').onclick = draw;
+  document.getElementById('memClearBtn').onclick = () => {
+    ['memQ', 'memAge', 'memGender', 'memCountry', 'memDbl', 'memSgl', 'memSkin'].forEach((id) => {
+      document.getElementById(id).value = '';
+    });
+    draw();
+  };
+  document.getElementById('memListBtn').onclick = () => {
+    view = 'list';
+    document.getElementById('memListBtn').classList.add('active');
+    document.getElementById('memTileBtn').classList.remove('active');
+    draw();
+  };
+  document.getElementById('memTileBtn').onclick = () => {
+    view = 'tile';
+    document.getElementById('memTileBtn').classList.add('active');
+    document.getElementById('memListBtn').classList.remove('active');
+    draw();
+  };
+}
+
+// ---------- member profile (tapped from the directory) ----------
+// Built only from what the member entered in the membership form — nothing
+// is fetched live from DUPR. Email/phone are never shown here.
+async function renderMemberProfile(memberId) {
+  app.innerHTML = `<p><a href="#/members">← Members</a></p><p class="muted">Loading…</p>`;
+  try {
+    const { members } = await api('/api/members');
+    const m = members.find((x) => x.id === memberId);
+    if (!m) {
+      app.innerHTML = `<div class="card"><h2>Member not found</h2><p class="muted">That member record does not exist.</p><p><a href="#/members">← Back to Members</a></p></div>`;
+      return;
+    }
+    const initial = (m.name[0] || '?').toUpperCase();
+    const dash = (v) => (v == null || v === '' ? '—' : esc(v));
+    const leagues = m.leagues || [];
+    app.innerHTML = `
+      <p><a href="#/members">← Back to Members</a></p>
+      <div class="profile-head">
+        ${m.photo_url ? `<img class="photo big" src="${esc(m.photo_url)}" alt="">` : `<span class="avatar huge">${initial}</span>`}
+        <h1>${esc(m.name)}</h1>
+        <p class="muted">Amateur | ${esc(m.country || '—')}</p>
+      </div>
+      <div class="detail-strip">
+        <div><span class="lbl">DUPR ID</span><strong>${dash(m.dupr_id)}</strong></div>
+        <div><span class="lbl">Nickname</span><strong>${dash(m.nickname)}</strong></div>
+        <div><span class="lbl">Age</span><strong>${m.age ?? '—'}</strong></div>
+        <div><span class="lbl">Gender</span><strong>${dash(m.gender)}</strong></div>
+        <div><span class="lbl">Height</span><strong>${dash(m.height)}</strong></div>
+        <div><span class="lbl">Handed</span><strong>${dash(m.handed)}</strong></div>
+      </div>
+      <div class="stat-row">
+        <button class="stat" id="profLeagues"><strong>${leagues.length}</strong> Leagues →</button>
+        <span class="stat"><strong>0</strong> Tournaments</span>
+      </div>
+      <div id="profLeagueList"></div>
+      <h2>Rating</h2>
+      <p class="dupr-powered">Ratings powered by <strong>DUPR</strong></p>
+      <div class="rating-boxes">
+        <div class="rating-box"><span class="lbl">Doubles</span><strong>${fmtRating(m.dupr_rating)}</strong></div>
+        <div class="rating-box"><span class="lbl">Singles</span><strong>${fmtRating(m.singles_rating)}</strong></div>
+        <div class="rating-box"><span class="lbl">Skinny Singles</span><strong>${fmtRating(m.skinny_rating)}</strong></div>
+      </div>
+      ${m.dupr_profile_url
+        ? `<div class="btnrow"><a class="btn" href="${esc(m.dupr_profile_url)}" target="_blank" rel="noopener">View on DUPR</a></div>`
+        : `<p class="muted">DUPR ID ${esc(m.dupr_id || '—')} — the live rating and rating history live on DUPR behind its sign-in. Add a DUPR profile link to this member record to link out to it.</p>`}
+      <p class="fineprint">The ratings shown here are the ones this member entered when joining MPA. They only change when the member or admin updates them — there is no live DUPR sync.</p>
+      <div class="btnrow"><a class="btn secondary" href="#/members">Back to Members</a></div>`;
+    document.getElementById('profLeagues').onclick = () => {
+      const el = document.getElementById('profLeagueList');
+      el.innerHTML = leagues.length
+        ? `<div class="card">${leagues.map((l) => `<div>${esc(l)}</div>`).join('')}</div>`
+        : '<p class="muted">Not in a league yet.</p>';
+    };
+  } catch (e) {
+    app.innerHTML = `<div class="banner warn">${esc(e.message)}</div><p><a href="#/members">← Back to Members</a></p>`;
+  }
 }
 
 // ---------- become a member form (shared) ----------
@@ -538,8 +730,8 @@ function renderMemberForm(container, onDone) {
         <div><label>Phone</label><input type="text" id="mf-phone" autocomplete="tel"></div>
       </div>
       <div class="field-row">
-        <div><label>DUPR ID</label><input type="text" id="mf-dupr"></div>
-        <div><label>DUPR doubles rating</label><input type="number" step="0.001" id="mf-rating" placeholder="e.g. 3.643"></div>
+        <div><label>DUPR ID (required)</label><input type="text" id="mf-dupr"></div>
+        <div><label>DUPR doubles rating (required)</label><input type="number" step="0.001" id="mf-rating" placeholder="e.g. 3.643"></div>
       </div>
       <label>DUPR profile link (optional)</label><input type="text" id="mf-profile" placeholder="https://…">
       <div class="field-row">
@@ -550,6 +742,18 @@ function renderMemberForm(container, onDone) {
         <div><label>Country (optional)</label><input type="text" id="mf-country" placeholder="e.g. USA"></div>
         <div><label>Profile photo URL (optional)</label><input type="text" id="mf-photo" placeholder="https://…"></div>
       </div>
+      <div class="field-row">
+        <div><label>Nickname (optional)</label><input type="text" id="mf-nick" placeholder="e.g. Al"></div>
+        <div><label>Gender (optional)</label><select id="mf-gender"><option value="">—</option><option>Female</option><option>Male</option></select></div>
+      </div>
+      <div class="field-row">
+        <div><label>Height (optional)</label><input type="text" id="mf-height" placeholder="e.g. 5'9&quot;"></div>
+        <div><label>Handed (optional)</label><select id="mf-handed"><option value="">—</option><option>Right</option><option>Left</option></select></div>
+      </div>
+      <div class="field-row">
+        <div><label>Singles rating (optional)</label><input type="number" step="0.001" id="mf-singles" placeholder="e.g. 3.500"></div>
+        <div><label>Skinny Singles rating (optional)</label><input type="number" step="0.001" id="mf-skinny" placeholder="e.g. 3.200"></div>
+      </div>
       <p class="fineprint">A DUPR account is required to be part of MPA. <a href="${DUPR_SIGNUP_URL}" target="_blank" rel="noopener">Create one free</a>. Your email and phone are only visible to the admin, never on public pages.</p>
       <div class="btnrow"><button class="btn" id="mf-submit">Become a Member</button></div>
       <p class="fineprint" id="mf-err"></p>
@@ -557,19 +761,31 @@ function renderMemberForm(container, onDone) {
   document.getElementById('mf-submit').onclick = async () => {
     const err = document.getElementById('mf-err');
     try {
+      const duprId = document.getElementById('mf-dupr').value.trim();
+      const duprRating = document.getElementById('mf-rating').value ? +document.getElementById('mf-rating').value : null;
+      if (!duprId || duprRating == null) {
+        err.textContent = 'A DUPR ID and doubles rating are required — a DUPR account is required to be part of MPA.';
+        return;
+      }
       const { member } = await api('/api/members', {
         method: 'POST',
         body: JSON.stringify({
           name: document.getElementById('mf-name').value.trim(),
           email: document.getElementById('mf-email').value.trim(),
           phone: document.getElementById('mf-phone').value.trim(),
-          duprId: document.getElementById('mf-dupr').value.trim(),
-          duprRating: document.getElementById('mf-rating').value ? +document.getElementById('mf-rating').value : null,
+          duprId,
+          duprRating,
           duprProfileUrl: document.getElementById('mf-profile').value.trim() || null,
           resides: document.getElementById('mf-resides').value.trim() || null,
           age: document.getElementById('mf-age').value ? +document.getElementById('mf-age').value : null,
           country: document.getElementById('mf-country').value.trim() || null,
           photoUrl: document.getElementById('mf-photo').value.trim() || null,
+          nickname: document.getElementById('mf-nick').value.trim() || null,
+          gender: document.getElementById('mf-gender').value || null,
+          height: document.getElementById('mf-height').value.trim() || null,
+          handed: document.getElementById('mf-handed').value || null,
+          singlesRating: document.getElementById('mf-singles').value ? +document.getElementById('mf-singles').value : null,
+          skinnyRating: document.getElementById('mf-skinny').value ? +document.getElementById('mf-skinny').value : null,
         }),
       });
       setIdentity(member.person_id, member.name);
@@ -601,8 +817,9 @@ async function renderLeague(leagueId) {
     app.innerHTML = `
       <p><a href="#/">${id ? '← Your leagues' : '← All leagues'}</a></p>
       <h1>${esc(league.name)}</h1>
-      <p class="muted">${esc(league.type)} · ${esc(league.skill)} · ${esc(league.format)} · ${esc(league.day)}s ${esc(league.time.slice(0, 5))}<br>
-      <a href="#" data-map="place" data-map-kind="place">${esc(league.location)}</a></p>
+      <p class="muted">${esc(league.type)} · ${esc(league.skill)} · ${esc(league.format)} · ${esc(league.day)}s ${esc(fmtClock(league.time))}<br>
+      <a href="#" data-map="place" data-map-kind="place">${esc(league.location)}</a><br>
+      ${fmtDateShort(league.start_date)} – ${fmtDateShort(league.stop_date)}</p>
       ${registrationOpen
         ? `<div class="card reg-open"><strong>✓ Registration Open — Join the League</strong><br>
            <span class="muted small">Joining costs $20 (YMCA member) / $50 (non-member), paid on ReClique.</span><br>
@@ -716,7 +933,7 @@ function renderInfoTab(league, registrationOpen) {
   body.innerHTML = `
     <div class="card"><h2>League Details</h2>
       <p><strong>Format:</strong> ${esc(league.format)} · <strong>Type:</strong> Ladder · <strong>Player Type:</strong> Scramble</p>
-      <p><strong>Day/Time:</strong> ${esc(league.day)}s at ${esc(league.time.slice(0, 5))}</p>
+      <p><strong>Day/Time:</strong> ${esc(league.day)}s at ${esc(fmtClock(league.time))}</p>
       <p><strong>Season:</strong> ${esc(league.season || 'Not set')} · ${fmtDateShort(league.start_date)} – ${fmtDateShort(league.stop_date)}</p>
       <p><strong>Skill:</strong> ${esc(league.skill)} · <strong>Age:</strong> Any</p>
       <p><strong>Description:</strong> A ladder scramble league at the YMCA in Moultrie, GA. Courts are assigned by standings; players stay on the same court for the whole session.</p>
@@ -1434,6 +1651,18 @@ async function renderAdminBody(leagues, league) {
           <div><label>Country</label><input type="text" id="me-country" value="${v(m.country)}"></div>
           <div><label>Profile photo URL</label><input type="text" id="me-photo" value="${v(m.photo_url)}"></div>
         </div>
+        <div class="field-row">
+          <div><label>Nickname</label><input type="text" id="me-nick" value="${v(m.nickname)}"></div>
+          <div><label>Gender</label><select id="me-gender"><option value="">—</option><option ${m.gender === 'Female' ? 'selected' : ''}>Female</option><option ${m.gender === 'Male' ? 'selected' : ''}>Male</option></select></div>
+        </div>
+        <div class="field-row">
+          <div><label>Height</label><input type="text" id="me-height" value="${v(m.height)}"></div>
+          <div><label>Handed</label><select id="me-handed"><option value="">—</option><option ${m.handed === 'Right' ? 'selected' : ''}>Right</option><option ${m.handed === 'Left' ? 'selected' : ''}>Left</option></select></div>
+        </div>
+        <div class="field-row">
+          <div><label>Singles rating</label><input type="number" step="0.001" id="me-singles" value="${m.singles_rating ?? ''}"></div>
+          <div><label>Skinny Singles rating</label><input type="number" step="0.001" id="me-skinny" value="${m.skinny_rating ?? ''}"></div>
+        </div>
         <div class="btnrow"><button class="btn small" id="me-save">Save member</button></div>
         <p class="fineprint" id="me-err"></p></div>`;
       document.getElementById('me-save').onclick = async () => {
@@ -1451,6 +1680,12 @@ async function renderAdminBody(leagues, league) {
               age: document.getElementById('me-age').value ? +document.getElementById('me-age').value : null,
               country: document.getElementById('me-country').value.trim() || null,
               photoUrl: document.getElementById('me-photo').value.trim() || null,
+              nickname: document.getElementById('me-nick').value.trim() || null,
+              gender: document.getElementById('me-gender').value || null,
+              height: document.getElementById('me-height').value.trim() || null,
+              handed: document.getElementById('me-handed').value || null,
+              singlesRating: document.getElementById('me-singles').value ? +document.getElementById('me-singles').value : null,
+              skinnyRating: document.getElementById('me-skinny').value ? +document.getElementById('me-skinny').value : null,
             }),
           });
           toast('Member saved.');
@@ -1646,11 +1881,11 @@ function announceHtml({ league, sessions, members, memberCount, withEmail, withP
     `A new MPA league is open: ${league.name}`,
     ``,
     `${league.type} · Skill ${league.skill} · ${league.format}`,
-    `${league.day}s at ${league.time.slice(0, 5)} · Season ${league.season || 'not set'} · ${fmtDateShort(league.start_date)} – ${fmtDateShort(league.stop_date)}`,
+    `${league.day}s at ${fmtClock(league.time)} · Season ${league.season || 'not set'} · ${fmtDateShort(league.start_date)} – ${fmtDateShort(league.stop_date)}`,
     `At the YMCA, 601 26th Ave SE, Moultrie, GA 31768`,
     ``,
     `Game days:`,
-    ...dayLines.map((d) => `• ${d} at ${league.time.slice(0, 5)}`),
+    ...dayLines.map((d) => `• ${d} at ${fmtClock(league.time)}`),
     ``,
     `Joining costs $20 (YMCA member) / $50 (non-member), paid on ReClique: ${RECLIQUE_URL}`,
     ``,
@@ -1663,14 +1898,14 @@ function announceHtml({ league, sessions, members, memberCount, withEmail, withP
   ].join('\n');
   const emailBodyHtml = [
     `<p><strong>A new MPA league is open: ${esc(league.name)}</strong></p>`,
-    `<p>${esc(league.type)} · Skill ${esc(league.skill)} · ${esc(league.format)}<br>${esc(league.day)}s at ${esc(league.time.slice(0, 5))} · Season ${esc(league.season || 'not set')} · ${fmtDateShort(league.start_date)} – ${fmtDateShort(league.stop_date)}<br>At the YMCA, 601 26th Ave SE, Moultrie, GA 31768</p>`,
-    `<p><strong>Game days:</strong><br>${dayLines.map((d) => `• ${esc(d)} at ${esc(league.time.slice(0, 5))}`).join('<br>')}</p>`,
+    `<p>${esc(league.type)} · Skill ${esc(league.skill)} · ${esc(league.format)}<br>${esc(league.day)}s at ${esc(fmtClock(league.time))} · Season ${esc(league.season || 'not set')} · ${fmtDateShort(league.start_date)} – ${fmtDateShort(league.stop_date)}<br>At the YMCA, 601 26th Ave SE, Moultrie, GA 31768</p>`,
+    `<p><strong>Game days:</strong><br>${dayLines.map((d) => `• ${esc(d)} at ${esc(fmtClock(league.time))}`).join('<br>')}</p>`,
     `<p>Joining costs $20 (YMCA member) / $50 (non-member), paid on ReClique: <a href="${RECLIQUE_URL}">${RECLIQUE_URL}</a></p>`,
     `<p><strong>Three steps to join:</strong><br>1. Get a free DUPR account: <a href="${DUPR_SIGNUP_URL}">${DUPR_SIGNUP_URL}</a><br>2. Become a free MPA member<br>3. Join the league — sign up here: <a href="${JOIN_PAGE_URL}">${JOIN_PAGE_URL}</a></p>`,
     `<p>Moultrie Pickleball Association</p>`,
   ].join('');
   const textDraft = [
-    `New MPA league: ${league.name} — ${league.format}, ${league.day}s ${league.time.slice(0, 5)} at the YMCA in Moultrie.`,
+    `New MPA league: ${league.name} — ${league.format}, ${league.day}s ${fmtClock(league.time)} at the YMCA in Moultrie.`,
     `Starts ${fmtDateShort(league.start_date)}, 8 weeks. $20 member / $50 non-member.`,
     `Sign up (about 2 minutes): ${JOIN_PAGE_URL}`,
     `Need a DUPR account first (free): ${DUPR_SIGNUP_URL}`,
@@ -1763,7 +1998,7 @@ async function renderMembersPage() {
       if (slot && open.length) {
         slot.innerHTML = `<h2>A new season is open</h2>` + open.map((l) => `<div class="card new-season">
           <strong>${esc(l.name)}</strong><br>
-          <span class="muted small">${esc(l.type)} · ${esc(l.skill)} · ${esc(l.format)} · ${esc(l.day)}s ${esc(l.time.slice(0, 5))} · ${esc(l.season || 'Season not set')}</span>
+          <span class="muted small">${esc(l.type)} · ${esc(l.skill)} · ${esc(l.format)} · ${esc(l.day)}s ${esc(fmtClock(l.time))} · ${esc(l.season || 'Season not set')}</span>
           <div class="btnrow"><a class="btn green small" href="#/join/${l.id}">Join this league</a></div>
         </div>`).join('');
       }
@@ -1803,7 +2038,7 @@ async function renderJoinPage(leagueId) {
       ${!detail.registrationOpen ? `<div class="card reg-closed"><strong>🔒 Registration Closed</strong><br>
         <span class="muted small">Sign-ups for ${esc(league.name)} are closed right now.</span></div>` : `
       <label>League</label>
-      <select id="j-league">${leagues.map((l) => `<option value="${l.id}" ${l.id === league.id ? 'selected' : ''}>${esc(l.name)} — ${esc(l.day)}s ${esc(l.time.slice(0, 5))}</option>`).join('')}</select>
+      <select id="j-league">${leagues.map((l) => `<option value="${l.id}" ${l.id === league.id ? 'selected' : ''}>${esc(l.name)} — ${esc(l.day)}s ${esc(fmtClock(l.time))}</option>`).join('')}</select>
       <div id="j-step1" class="card" style="${step1Done ? 'display:none' : ''}">
         <h3>Step 1 — Your DUPR</h3>
         <p class="muted small">A DUPR account is required to be part of MPA. <a href="${DUPR_SIGNUP_URL}" target="_blank" rel="noopener">Create one free</a>.</p>
@@ -2006,6 +2241,18 @@ async function renderProfile() {
           <div><label>Country</label><input type="text" id="pf-country" value="${v(person.country)}"></div>
           <div><label>Profile photo URL</label><input type="text" id="pf-photo" value="${v(person.photo_url)}" placeholder="https://…"></div>
         </div>
+        <div class="field-row">
+          <div><label>Nickname</label><input type="text" id="pf-nick" value="${member ? v(member.nickname) : ''}"></div>
+          <div><label>Gender</label><select id="pf-gender"><option value="">—</option><option ${member && member.gender === 'Female' ? 'selected' : ''}>Female</option><option ${member && member.gender === 'Male' ? 'selected' : ''}>Male</option></select></div>
+        </div>
+        <div class="field-row">
+          <div><label>Height</label><input type="text" id="pf-height" value="${member ? v(member.height) : ''}"></div>
+          <div><label>Handed</label><select id="pf-handed"><option value="">—</option><option ${member && member.handed === 'Right' ? 'selected' : ''}>Right</option><option ${member && member.handed === 'Left' ? 'selected' : ''}>Left</option></select></div>
+        </div>
+        <div class="field-row">
+          <div><label>Singles rating</label><input type="number" step="0.001" id="pf-singles" value="${member && member.singles_rating != null ? member.singles_rating : ''}"></div>
+          <div><label>Skinny Singles rating</label><input type="number" step="0.001" id="pf-skinny" value="${member && member.skinny_rating != null ? member.skinny_rating : ''}"></div>
+        </div>
         <div class="btnrow"><button class="btn" id="pf-save">Save profile</button></div>
         <p class="fineprint" id="pf-err"></p>
       </div>`;
@@ -2024,6 +2271,12 @@ async function renderProfile() {
             age: document.getElementById('pf-age').value ? +document.getElementById('pf-age').value : null,
             country: document.getElementById('pf-country').value.trim() || null,
             photoUrl: document.getElementById('pf-photo').value.trim() || null,
+            nickname: document.getElementById('pf-nick').value.trim() || null,
+            gender: document.getElementById('pf-gender').value || null,
+            height: document.getElementById('pf-height').value.trim() || null,
+            handed: document.getElementById('pf-handed').value || null,
+            singlesRating: document.getElementById('pf-singles').value ? +document.getElementById('pf-singles').value : null,
+            skinnyRating: document.getElementById('pf-skinny').value ? +document.getElementById('pf-skinny').value : null,
           }),
         });
         setCoverStep('dupr');
