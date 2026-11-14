@@ -5,6 +5,7 @@
 const express = require('express');
 const { pool } = require('../db');
 const auth = require('../lib/auth');
+const { zonedToUtc, TZ } = require('../lib/time');
 const {
   effectiveStatus,
   optInWindow,
@@ -19,6 +20,7 @@ const {
   rebuildInPlace,
   findOrCreatePerson,
   createLeagueWithSessions,
+  dateOnly,
   normalizeLeague,
 } = require('../lib/league');
 
@@ -567,6 +569,101 @@ router.post('/admin/leagues/:id/sessions/:sid/reopen', auth.requireAdmin, (req, 
     await pool.query("UPDATE sessions SET status = 'upcoming' WHERE id = $1", [session.id]);
     await pool.query('DELETE FROM rank_snapshots WHERE session_id = $1', [session.id]);
     res.json({ ok: true });
+  }, req, res)
+);
+
+// Move a game day (Admin-only). Shifts the game day and every later
+// upcoming game day by the same number of days, so the season stays weekly
+// after a rain-out (or anything else that comes up on the day).
+// starts_at moves with the date, so the opt-in deadline (3 hours before
+// game time) and the Groups/Matches reveal (at the deadline) move too —
+// both are derived from starts_at in optInWindow (server/lib/league.js).
+// Matches and opt-ins are keyed by session, so they move with the night.
+router.patch('/admin/leagues/:id/sessions/:sid/date', auth.requireAdmin, (req, res) =>
+  handle(async () => {
+    const league = await getLeague(pool, req.params.id);
+    if (!league) return res.status(404).json({ error: 'League not found.' });
+    const session = await getSession(pool, league.id, req.params.sid);
+    if (!session) return res.status(404).json({ error: 'Game day not found.' });
+    if (effectiveStatus(session) !== 'upcoming') {
+      return res.status(409).json({ error: 'Only an upcoming game day can be moved.' });
+    }
+    const gameDate = typeof req.body.gameDate === 'string' ? req.body.gameDate.trim() : '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(gameDate)) {
+      return res.status(400).json({ error: 'Pick a new date.' });
+    }
+    const newDay = new Date(gameDate + 'T12:00:00Z');
+    if (Number.isNaN(newDay.getTime())) {
+      return res.status(400).json({ error: 'Pick a valid date.' });
+    }
+    const oldDateStr = dateOnly(session.date);
+    const oldDay = new Date(oldDateStr + 'T12:00:00Z');
+    const deltaDays = Math.round((newDay - oldDay) / 86400000);
+    if (deltaDays === 0) {
+      return res.status(400).json({ error: 'The new date is the same as the current date.' });
+    }
+    // Must not be in the past (today, in the league timezone, is fine).
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: TZ });
+    if (gameDate < todayStr) {
+      return res.status(400).json({ error: 'The new date cannot be in the past.' });
+    }
+    const sessions = await getSessions(pool, league.id);
+    const idx = sessions.findIndex((s) => s.id === session.id);
+    const prev = idx > 0 ? sessions[idx - 1] : null;
+    if (prev && gameDate <= dateOnly(prev.date)) {
+      return res.status(400).json({ error: 'The new date must be after the previous game day.' });
+    }
+    const later = sessions.filter((s) => dateOnly(s.date) > oldDateStr);
+    if (later.some((s) => s.status === 'completed')) {
+      return res.status(409).json({ error: 'A later game day is already finished, so the season cannot be shifted.' });
+    }
+    const shift = (dateStr, days) => {
+      const d = new Date(dateStr + 'T12:00:00Z');
+      d.setUTCDate(d.getUTCDate() + days);
+      return d.toISOString().slice(0, 10);
+    };
+    const weekday = (dateStr) =>
+      new Date(dateStr + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long' });
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      for (const s of [session, ...later]) {
+        const d = shift(dateOnly(s.date), deltaDays);
+        await client.query(
+          'UPDATE sessions SET date = $1, starts_at = $2, label = $3 WHERE id = $4',
+          [d, zonedToUtc(d, league.time), `${weekday(d)} Night`, s.id]
+        );
+      }
+      const lastDate = shift(dateOnly(later.length ? later[later.length - 1].date : session.date), deltaDays);
+      if (lastDate > dateOnly(league.stop_date)) {
+        await client.query('UPDATE leagues SET stop_date = $1 WHERE id = $2', [lastDate, league.id]);
+      }
+      const newGameDates = (league.game_dates || []).map((d) =>
+        dateOnly(d) > oldDateStr ? shift(dateOnly(d), deltaDays) : dateOnly(d)
+      );
+      await client.query('UPDATE leagues SET game_dates = $1 WHERE id = $2', [newGameDates, league.id]);
+      const updated = await getSessions(client, league.id);
+      await client.query('COMMIT');
+      const now = new Date();
+      res.json({
+        ok: true,
+        sessions: updated.map((s) => ({
+          id: s.id,
+          session_number: s.session_number,
+          date: dateOnly(s.date),
+          starts_at: s.starts_at,
+          status: effectiveStatus(s, now),
+          label: s.label,
+          schedule_generated: Boolean(s.schedule_generated_at),
+        })),
+      });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
   }, req, res)
 );
 
