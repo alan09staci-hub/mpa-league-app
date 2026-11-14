@@ -1003,23 +1003,23 @@ function renderMatches(leagueId, sessionId, data, id) {
 // the player out mid-entry.
 function renderScoreView(leagueId, sessionId, id, m, rosterMap) {
   const body = document.getElementById('gdBody');
-  const t1 = `${esc(personName(rosterMap, m.team1_p1))} & ${esc(personName(rosterMap, m.team1_p2))}`;
-  const t2 = `${esc(personName(rosterMap, m.team2_p1))} & ${esc(personName(rosterMap, m.team2_p2))}`;
+  const p1 = esc(personName(rosterMap, m.team1_p1));
+  const p2 = esc(personName(rosterMap, m.team1_p2));
+  const p3 = esc(personName(rosterMap, m.team2_p1));
+  const p4 = esc(personName(rosterMap, m.team2_p2));
   const scored = m.score1 != null;
   body.innerHTML = `
     <div class="match-card">
       <h3>Match ${m.round} · Court ${m.court} · Round ${m.round}</h3>
       <p class="muted">Games to ${m.target_score}</p>
-      <div class="teams">${t1}</div>
+      <div class="teams">${p1}<br>${p2}</div>
       <div class="score-row">
-        <input type="number" min="0" max="30" inputmode="numeric" id="sv-s1" value="${scored ? m.score1 : ''}" placeholder="—" aria-label="Team 1 score">
-        <span class="target">to ${m.target_score}</span>
+        <input type="text" inputmode="numeric" id="sv-s1" value="${scored ? m.score1 : ''}" placeholder="—" aria-label="Team 1 score">
       </div>
-      <div class="vs">vs</div>
-      <div class="teams">${t2}</div>
+      <div class="vs" style="text-align:center">VS</div>
+      <div class="teams">${p3}<br>${p4}</div>
       <div class="score-row">
-        <input type="number" min="0" max="30" inputmode="numeric" id="sv-s2" value="${scored ? m.score2 : ''}" placeholder="—" aria-label="Team 2 score">
-        <span class="target">to ${m.target_score}</span>
+        <input type="text" inputmode="numeric" id="sv-s2" value="${scored ? m.score2 : ''}" placeholder="—" aria-label="Team 2 score">
       </div>
       <div class="score-row">
         <button class="btn" id="svSave">Save score</button>
@@ -1027,6 +1027,7 @@ function renderScoreView(leagueId, sessionId, id, m, rosterMap) {
         <button class="btn secondary" id="svBack">Back</button>
       </div>
     </div>`;
+
   document.getElementById('svBack').onclick = () => { scoreMatchId = null; renderGameDay(leagueId, sessionId); };
   document.getElementById('svSave').onclick = async () => {
     const s1 = document.getElementById('sv-s1').value;
