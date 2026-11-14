@@ -902,8 +902,7 @@ async function renderStandingsTab(league, sessions, currentSessionId, id) {
     </div>
     <div class="rule-box"><strong>Max Movement Rule — 20% of league size.</strong>
       Max movement per player this week is ${Math.floor((league.max_players || 36) * 0.2)}.
-      Y marks a player who moved ${Math.floor((league.max_players || 36) * 0.2)} or more spots up or down this week. Otherwise N.
-      Absent players cannot move up.<br>
+      Y marks a player who moved ${Math.floor((league.max_players || 36) * 0.2)} or more spots up or down this week. Otherwise N.<br>
       <span class="muted">Miss penalty: 1st miss free, 2nd miss 2.5 points off E/P Diff%, 3rd 5.0, each further miss +2.5.
       Only sessions after joining the roster count.</span></div>
     <div class="footer-box">
