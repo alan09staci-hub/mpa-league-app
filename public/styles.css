@@ -168,9 +168,11 @@ table.standings tr.you td { background: #fff8e1; }
 
 .court-card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 10px 0; }
 .court-card h3 { margin-top: 0; }
-.match-card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 10px 0; }
-.match-card .teams { font-weight: 600; }
-.match-card .vs { color: var(--grey); font-weight: 400; }
+.match-card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 10px 0; max-width: 880px; font-weight: 700; }
+.match-card .teams { font-weight: 700; }
+.match-card .vs { color: var(--grey); font-weight: 700; }
+.match-card .bye-row { display: inline-block; }
+
 .score-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 .score-row input { width: 70px; text-align: center; }
 .score-row .target { font-size: 13px; color: var(--grey); }
