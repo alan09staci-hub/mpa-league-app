@@ -770,6 +770,7 @@ function openAllDays(league, sessions) {
 
 // ---------- game day ----------
 let gdTab = 'rsvps';
+let scoreMatchId = null; // id of the match open in the dedicated score view (pauses the 30s auto-refresh)
 async function renderGameDay(leagueId, sessionId) {
   const adminView = location.hash.includes('view=organizer');
   app.innerHTML = `<p class="muted">Loading game day…</p>`;
@@ -805,8 +806,9 @@ async function renderGameDay(leagueId, sessionId) {
       openAllDays(l.league, l.sessions);
     };
     app.querySelectorAll('.tabs button').forEach((b) => {
-      b.onclick = () => { gdTab = b.dataset.tab; renderGameDay(leagueId, sessionId); };
+      b.onclick = () => { gdTab = b.dataset.tab; scoreMatchId = null; renderGameDay(leagueId, sessionId); };
     });
+    if (gdTab !== 'matches') scoreMatchId = null;
     if (gdTab === 'rsvps') renderRsvps(leagueId, sessionId, data, id);
     if (gdTab === 'groups') renderGroups(data, id);
     if (gdTab === 'matches') renderMatches(leagueId, sessionId, data, id);
@@ -816,6 +818,7 @@ refreshTimer = setInterval(() => {
 
       const ae = document.activeElement;
       if (ae && ae.tagName === 'INPUT') return;
+      if (scoreMatchId) return;
       if (modalRoot.innerHTML) return;
       renderGameDay(leagueId, sessionId);
     }, 30000);
@@ -937,55 +940,112 @@ function renderMatches(leagueId, sessionId, data, id) {
   const rosterMap = new Map();
   [...data.playing, ...data.notPlaying].forEach((p) => rosterMap.set(p.person_id, p.name));
   const finished = session.status === 'completed';
-  const byes = matches.filter((m) => m.kind === 'bye');
   const games = matches.filter((m) => m.kind === 'match');
-  body.innerHTML = `
-    ${games.map((m) => {
-      const t1 = `${esc(personName(rosterMap, m.team1_p1))} & ${esc(personName(rosterMap, m.team1_p2))}`;
-      const t2 = `${esc(personName(rosterMap, m.team2_p1))} & ${esc(personName(rosterMap, m.team2_p2))}`;
-      const scored = m.score1 != null;
-      return `<div class="match-card">
-        <div class="teams">Court ${m.court} · Round ${m.round}<br>${t1} <span class="vs">vs</span> ${t2}</div>
-        ${finished
-          ? `<p>${scored ? `${m.score1} – ${m.score2}` : 'Not scored'}</p>`
-          : `<div class="score-row">
-              <input type="number" min="0" max="30" inputmode="numeric" id="s1-${m.id}" value="${scored ? m.score1 : ''}" placeholder="—" aria-label="Team 1 score">
-              <span>–</span>
-              <input type="number" min="0" max="30" inputmode="numeric" id="s2-${m.id}" value="${scored ? m.score2 : ''}" placeholder="—" aria-label="Team 2 score">
-              <span class="target">to ${m.target_score}</span>
-              <button class="btn small" data-save="${m.id}">Save</button>
-              ${scored ? `<button class="btn secondary small" data-clear="${m.id}">Clear</button>` : ''}
-            </div>`}
-      </div>`;
-    }).join('')}
-    ${byes.map((m) => `<div class="bye-row">Court ${m.court} · Round ${m.round} — ${esc(personName(rosterMap, m.bye_person_id))} sits out (BYE)</div>`).join('')}`;
-  body.querySelectorAll('button[data-save]').forEach((b) => {
-    b.onclick = async () => {
-      const mid = b.dataset.save;
-      const s1 = document.getElementById(`s1-${mid}`).value;
-      const s2 = document.getElementById(`s2-${mid}`).value;
-      try {
-        await post(`/api/leagues/${leagueId}/sessions/${sessionId}/matches/${mid}/score`, {
-          personId: id ? id.personId : null,
-          score1: s1 === '' ? null : +s1,
-          score2: s2 === '' ? null : +s2,
-        });
-        toast('Score saved.');
-        renderGameDay(leagueId, sessionId);
-      } catch (e) { toast(e.message); }
-    };
+  const byes = matches.filter((m) => m.kind === 'bye');
+  const byeForRound = (round) => byes.find((b) => b.round === round);
+  // A dedicated score view is open — show it instead of the list.
+  if (scoreMatchId) {
+    const open = games.find((g) => g.id === scoreMatchId);
+    if (open) { renderScoreView(leagueId, sessionId, id, open, rosterMap); return; }
+    scoreMatchId = null;
+  }
+  if (!games.length) {
+    body.innerHTML = byes.map((m) => `<div class="bye-row">Court ${m.court} · Round ${m.round} — ${esc(personName(rosterMap, m.bye_person_id))} sits out (BYE)</div>`).join('');
+    return;
+  }
+  const cardHtml = (m, showScore) => {
+    const t1 = `${esc(personName(rosterMap, m.team1_p1))} & ${esc(personName(rosterMap, m.team1_p2))}`;
+    const t2 = `${esc(personName(rosterMap, m.team2_p1))} & ${esc(personName(rosterMap, m.team2_p2))}`;
+    const bye = byeForRound(m.round);
+    const scored = m.score1 != null;
+    return `<div class="match-card">
+      <div class="teams">Match ${m.round} · Court ${m.court} · Round ${m.round}<br>${t1} <span class="vs">vs</span> ${t2}</div>
+      <p class="muted">to ${m.target_score}</p>
+      ${bye ? `<div class="bye-row">Court ${m.court} · Round ${m.round} — ${esc(personName(rosterMap, bye.bye_person_id))} sits out (BYE)</div>` : ''}
+      ${scored ? `<p>${m.score1} – ${m.score2}</p>` : ''}
+      ${showScore && !finished ? `<button class="btn" data-score="${m.id}">SCORE</button>` : ''}
+    </div>`;
+  };
+  const current = games.find((m) => m.score1 == null);
+  const done = games.filter((m) => m.score1 != null);
+  let html = '';
+  if (!current) {
+    html += `<div class="card"><p><strong>All matches scored</strong></p></div>`;
+  } else {
+    html += cardHtml(current, true);
+  }
+  if (done.length) {
+    html += `<h3>Finished</h3>` + done.map((m) => cardHtml(m, true)).join('');
+  }
+  body.innerHTML = html;
+  body.querySelectorAll('button[data-score]').forEach((b) => {
+    b.onclick = () => { scoreMatchId = +b.dataset.score; renderGameDay(leagueId, sessionId); };
   });
-  body.querySelectorAll('button[data-clear]').forEach((b) => {
-    b.onclick = async () => {
+}
+
+// Dedicated one-match score screen, opened from the Matches list via SCORE.
+// scoreMatchId tracks the open match so the 30s auto-refresh never kicks
+// the player out mid-entry.
+function renderScoreView(leagueId, sessionId, id, m, rosterMap) {
+  const body = document.getElementById('gdBody');
+  const t1 = `${esc(personName(rosterMap, m.team1_p1))} & ${esc(personName(rosterMap, m.team1_p2))}`;
+  const t2 = `${esc(personName(rosterMap, m.team2_p1))} & ${esc(personName(rosterMap, m.team2_p2))}`;
+  const scored = m.score1 != null;
+  body.innerHTML = `
+    <div class="match-card">
+      <h3>Match ${m.round} · Court ${m.court} · Round ${m.round}</h3>
+      <p class="muted">Games to ${m.target_score}</p>
+      <div class="teams">${t1}</div>
+      <div class="score-row">
+        <input type="number" min="0" max="30" inputmode="numeric" id="sv-s1" value="${scored ? m.score1 : ''}" placeholder="—" aria-label="Team 1 score">
+        <span class="target">to ${m.target_score}</span>
+      </div>
+      <div class="vs">vs</div>
+      <div class="teams">${t2}</div>
+      <div class="score-row">
+        <input type="number" min="0" max="30" inputmode="numeric" id="sv-s2" value="${scored ? m.score2 : ''}" placeholder="—" aria-label="Team 2 score">
+        <span class="target">to ${m.target_score}</span>
+      </div>
+      <div class="score-row">
+        <button class="btn" id="svSave">Save score</button>
+        ${scored ? `<button class="btn secondary small" id="svClear">Clear</button>` : ''}
+        <button class="btn secondary" id="svBack">Back</button>
+      </div>
+    </div>`;
+  document.getElementById('svBack').onclick = () => { scoreMatchId = null; renderGameDay(leagueId, sessionId); };
+  document.getElementById('svSave').onclick = async () => {
+    const s1 = document.getElementById('sv-s1').value;
+    const s2 = document.getElementById('sv-s2').value;
+    const n1 = s1 === '' ? null : +s1;
+    const n2 = s2 === '' ? null : +s2;
+    if (n1 == null || n2 == null) { toast('Enter both scores.'); return; }
+    if (!Number.isInteger(n1) || !Number.isInteger(n2) || n1 < 0 || n2 < 0 || n1 > 30 || n2 > 30) { toast('Scores must be whole numbers from 0 to 30.'); return; }
+    if (n1 === n2) { toast('Scores cannot tie.'); return; }
+    if (Math.max(n1, n2) !== m.target_score) { toast(`One side must reach ${m.target_score} (games to ${m.target_score}).`); return; }
+    try {
+      await post(`/api/leagues/${leagueId}/sessions/${sessionId}/matches/${m.id}/score`, {
+        personId: id ? id.personId : null,
+        score1: n1,
+        score2: n2,
+      });
+      toast('Score saved.');
+      scoreMatchId = null;
+      renderGameDay(leagueId, sessionId);
+    } catch (e) { toast(e.message); }
+  };
+  const clearBtn = document.getElementById('svClear');
+  if (clearBtn) {
+    clearBtn.onclick = async () => {
       try {
-        await post(`/api/leagues/${leagueId}/sessions/${sessionId}/matches/${b.dataset.clear}/score`, {
+        await post(`/api/leagues/${leagueId}/sessions/${sessionId}/matches/${m.id}/score`, {
           personId: id ? id.personId : null, score1: null, score2: null,
         });
         toast('Score cleared.');
+        scoreMatchId = null;
         renderGameDay(leagueId, sessionId);
       } catch (e) { toast(e.message); }
     };
-  });
+  }
 }
 
 // ---------- admin ----------
