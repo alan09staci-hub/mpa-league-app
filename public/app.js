@@ -2215,10 +2215,11 @@ function announceJoinHtml({ members, memberCount, withEmail, withPhone }) {
     ``,
     `MPA runs ladder leagues at the YMCA in Moultrie, GA — Coed Doubles, Women's Doubles, and more, for every skill level. Pick the league for your skill and play every week.`,
     ``,
-    `Three steps to join:`,
+    `Two steps to join:`,
     `1. Get a free DUPR account: ${DUPR_SIGNUP_URL}`,
     `2. Become a free MPA member`,
-    `3. Pick your league and join: ${APP_URL}/`,
+    ``,
+    `Join here: ${APP_URL}/`,
     ``,
     `Joining a league costs $20 (YMCA member) / $50 (non-member), paid on ReClique: ${RECLIQUE_URL}`,
     ``,
@@ -2227,7 +2228,8 @@ function announceJoinHtml({ members, memberCount, withEmail, withPhone }) {
   const emailBodyHtml = [
     `<p><strong>Join the Moultrie Pickleball Association — membership is free.</strong></p>`,
     `<p>MPA runs ladder leagues at the YMCA in Moultrie, GA — Coed Doubles, Women's Doubles, and more, for every skill level. Pick the league for your skill and play every week.</p>`,
-    `<p><strong>Three steps to join:</strong><br>1. Get a free DUPR account: <a href="${DUPR_SIGNUP_URL}">${DUPR_SIGNUP_URL}</a><br>2. Become a free MPA member<br>3. Pick your league and join: <a href="${APP_URL}/">${APP_URL}/</a></p>`,
+    `<p><strong>Two steps to join:</strong><br>1. Get a free DUPR account: <a href="${DUPR_SIGNUP_URL}">${DUPR_SIGNUP_URL}</a><br>2. Become a free MPA member</p>`,
+    `<p>Join here: <a href="${APP_URL}/">${APP_URL}/</a></p>`,
     `<p>Joining a league costs $20 (YMCA member) / $50 (non-member), paid on ReClique: <a href="${RECLIQUE_URL}">${RECLIQUE_URL}</a></p>`,
     `<p>Moultrie Pickleball Association</p>`,
   ].join('');
@@ -2235,7 +2237,7 @@ function announceJoinHtml({ members, memberCount, withEmail, withPhone }) {
     `Join the Moultrie Pickleball Association — it's free.`,
     `1. Get a free DUPR account: ${DUPR_SIGNUP_URL}`,
     `2. Become a free MPA member`,
-    `3. Pick your league and join: ${APP_URL}/`,
+    `Join here: ${APP_URL}/`,
     `Leagues are $20 member / $50 non-member.`,
     `— Moultrie Pickleball Association`,
   ].join('\n');
