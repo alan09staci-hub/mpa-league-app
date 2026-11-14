@@ -154,10 +154,10 @@ function computeStandings({ league, roster, sessions, prevSnapshot, latestComple
   for (const r of rows) {
     if (r.previous == null) {
       r.maxMvmt = null;
-    } else if (absentLatest.has(r.person_id) || Math.abs(r.rank - r.previous) >= maxMove) {
+    } else if (Math.abs(r.rank - r.previous) >= maxMove) {
       r.maxMvmt = 'Y';
     } else {
-      r.maxMvmt = '';
+      r.maxMvmt = 'N';
     }
   }
 
