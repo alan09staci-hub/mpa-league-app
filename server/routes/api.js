@@ -639,11 +639,15 @@ router.patch('/admin/leagues/:id/sessions/:sid/date', auth.requireAdmin, (req, r
       if (lastDate > dateOnly(league.stop_date)) {
         await client.query('UPDATE leagues SET stop_date = $1 WHERE id = $2', [lastDate, league.id]);
       }
-      const newGameDates = (league.game_dates || []).map((d) =>
-        dateOnly(d) > oldDateStr ? shift(dateOnly(d), deltaDays) : dateOnly(d)
-      );
-      await client.query('UPDATE leagues SET game_dates = $1 WHERE id = $2', [newGameDates, league.id]);
       const updated = await getSessions(client, league.id);
+      // Rebuild game_dates from the updated sessions (positional, week 1–8
+      // by session_number) instead of shifting the old array: the old
+      // map-shift kept the moved day's old date and never inserted its new
+      // date. This also self-heals a stale array on the next move.
+      const rebuiltDates = [...updated]
+        .sort((a, b) => a.session_number - b.session_number)
+        .map((s) => dateOnly(s.date));
+      await client.query('UPDATE leagues SET game_dates = $1 WHERE id = $2', [rebuiltDates, league.id]);
       await client.query('COMMIT');
       const now = new Date();
       res.json({
