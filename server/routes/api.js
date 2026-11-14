@@ -158,7 +158,7 @@ router.get('/leagues/:id/sessions/:sid', (req, res) =>
       }))
       .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999));
 
-    const isAdmin = auth.isAdmin(req);
+    const isAdmin = await auth.isAdmin(req);
     const viewerId = asInt(req.query.viewer);
     let matches = null;
     let groups = null;
@@ -317,11 +317,11 @@ router.post('/leagues/:id/sessions/:sid/matches/:mid/score', (req, res) =>
     const sessions = await getSessions(pool, league.id);
     const idx = sessions.findIndex((s) => s.id === session.id);
     const win = optInWindow(session, idx > 0 ? sessions[idx - 1] : null, league);
-   if (new Date() < win.deadlineAt && !auth.isAdmin(req)) {
+   if (new Date() < win.deadlineAt && !(await auth.isAdmin(req))) {
 
       return res.status(409).json({ error: 'Scores open once the game day starts.' });
     }
-    const isAdmin = auth.isAdmin(req);
+    const isAdmin = await auth.isAdmin(req);
     const personId = asInt(req.body.personId);
     if (!isAdmin) {
       if (!personId) return res.status(400).json({ error: 'personId is required.' });
@@ -368,7 +368,7 @@ router.post('/admin/login', (req, res) =>
     if (!auth.checkPasscode(req.body.passcode)) {
       return res.status(401).json({ error: 'Wrong passcode.' });
     }
-    const token = auth.issueToken();
+    const token = await auth.issueToken();
     res.setHeader(
       'Set-Cookie',
       `mpa_admin=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${12 * 3600}`
@@ -377,14 +377,14 @@ router.post('/admin/login', (req, res) =>
   }, req, res)
 );
 
-router.post('/admin/logout', (req, res) => {
-  auth.revokeToken(auth.tokenFromReq(req));
+router.post('/admin/logout', async (req, res) => {
+  try { await auth.revokeToken(auth.tokenFromReq(req)); } catch { /* already gone */ }
   res.setHeader('Set-Cookie', 'mpa_admin=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
   res.json({ ok: true });
 });
 
-router.get('/admin/me', (req, res) => {
-  res.json({ admin: auth.isAdmin(req), passcodeConfigured: auth.passcodeConfigured() });
+router.get('/admin/me', async (req, res) => {
+  res.json({ admin: await auth.isAdmin(req), passcodeConfigured: auth.passcodeConfigured() });
 });
 
 // ---------------------------------------------------------------- admin
