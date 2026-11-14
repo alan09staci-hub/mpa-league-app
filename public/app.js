@@ -836,7 +836,7 @@ async function renderLeague(leagueId) {
            <div class="btnrow"><a class="btn green" href="#/join/${league.id}">Join the League</a></div></div>`
         : `<div class="card reg-closed"><strong>🔒 Registration Closed</strong><br>
            <span class="muted small">Sign-ups for this league are closed right now.</span></div>`}
-      <div class="btnrow"><a class="btn secondary" href="mailto:hello@moultriepickleball.org?subject=MPA%20league%20question">Contact League</a></div>
+      <div class="btnrow"><a class="btn secondary" href="mailto:moultriepickleball@gmail.com?subject=MPA%20league%20question">Contact League</a></div>
       ${currentSessionId ? `<div class="btnrow"><a class="btn" href="#/league/${league.id}/game/${currentSessionId}">Current Game Day</a>
         <button class="btn secondary" id="allDaysBtn">All Game Days</button></div>` : ''}
       <div class="tabs" role="tablist">
