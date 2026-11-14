@@ -315,7 +315,8 @@ router.post('/leagues/:id/sessions/:sid/matches/:mid/score', (req, res) =>
     const sessions = await getSessions(pool, league.id);
     const idx = sessions.findIndex((s) => s.id === session.id);
     const win = optInWindow(session, idx > 0 ? sessions[idx - 1] : null, league);
-    if (new Date() < win.deadlineAt) {
+   if (new Date() < win.deadlineAt && !auth.isAdmin(req)) {
+
       return res.status(409).json({ error: 'Scores open once the game day starts.' });
     }
     const isAdmin = auth.isAdmin(req);
