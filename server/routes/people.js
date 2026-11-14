@@ -12,7 +12,9 @@ const {
   loadStandingsData,
   findOrCreatePerson,
   normalizeLeague,
+  dateOnly,
 } = require('../lib/league');
+const { zonedToUtc } = require('../lib/time');
 
 const router = express.Router();
 
@@ -651,10 +653,128 @@ router.patch('/admin/leagues/:id', auth.requireAdmin, (req, res) =>
   handle(async () => {
     const league = await getLeague(pool, req.params.id);
     if (!league) throw err(404, 'League not found.');
-    const logoColor = cleanStr(req.body.logoColor, 32);
-    if (!logoColor) throw err(400, 'logoColor is required.');
-    await pool.query('UPDATE leagues SET logo_color = $1 WHERE id = $2', [logoColor, league.id]);
-    res.json({ ok: true });
+    const b = req.body || {};
+    const sets = [];
+    const vals = [];
+    let n = 0;
+    const push = (col, v) => { sets.push(`${col} = $${++n}`); vals.push(v); };
+    if (b.logoColor !== undefined) {
+      const logoColor = cleanStr(b.logoColor, 32);
+      if (!logoColor) throw err(400, 'logoColor is required.');
+      push('logo_color', logoColor);
+    }
+    if (b.name !== undefined) {
+      const name = cleanStr(b.name, 200);
+      if (!name) throw err(400, 'League name cannot be empty.');
+      push('name', name);
+    }
+    if (b.type !== undefined) {
+      const types = ['Intermediate', 'Intermediate/Advanced', 'Advanced', 'Elite', "Women's"];
+      if (!types.includes(b.type)) throw err(400, 'Unknown league type.');
+      push('type', b.type);
+    }
+    if (b.skill !== undefined) {
+      const skills = ['2.5-2.99', '3.0-3.49', '3.5-4.49', '5.0-ABOVE', '50+'];
+      if (!skills.includes(b.skill)) throw err(400, 'Unknown skill range.');
+      push('skill', b.skill);
+    }
+    if (b.format !== undefined) {
+      const formats = ['Coed Doubles', "Women's Doubles", "Men's Doubles"];
+      if (!formats.includes(b.format)) throw err(400, 'Unknown format.');
+      push('format', b.format);
+    }
+    let newTime = null;
+    if (b.day !== undefined) {
+      const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      if (!days.includes(b.day)) throw err(400, 'Unknown day.');
+      push('day', b.day);
+    }
+    if (b.time !== undefined) {
+      if (!/^\d{2}:\d{2}(:\d{2})?$/.test(String(b.time))) throw err(400, 'Time must be HH:MM.');
+      newTime = String(b.time).slice(0, 5);
+      push('time', newTime);
+    }
+    if (b.season !== undefined) push('season', cleanStr(b.season, 100) || '');
+    if (b.startDate !== undefined) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b.startDate))) throw err(400, 'Season start must be a date.');
+      push('start_date', b.startDate);
+    }
+    if (b.stopDate !== undefined) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b.stopDate))) throw err(400, 'Season stop must be a date.');
+      push('stop_date', b.stopDate);
+    }
+    if (!sets.length) throw err(400, 'Nothing to update.');
+    // Changing Day/Time moves the time component of upcoming sessions'
+    // starts_at (same dates, new time) so the opt-in deadline follows the
+    // new time. Session DATES and labels are never rewritten here — dates
+    // belong to "Move a game day". Completed sessions are never touched.
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      vals.push(league.id);
+      await client.query(`UPDATE leagues SET ${sets.join(', ')} WHERE id = $${++n}`, vals);
+      if (newTime !== null) {
+        const time = newTime;
+        const { rows: upcoming } = await client.query(
+          `SELECT id, starts_at FROM sessions
+            WHERE league_id = $1 AND status = 'upcoming' AND starts_at > now()
+            ORDER BY starts_at ASC`,
+          [league.id]
+        );
+        for (const s of upcoming) {
+          const d = dateOnly(s.starts_at);
+          await client.query('UPDATE sessions SET starts_at = $1 WHERE id = $2', [zonedToUtc(d, time), s.id]);
+        }
+      }
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+    const updated = await getLeague(pool, league.id);
+    res.json({ ok: true, league: normalizeLeague(updated) });
+  }, req, res)
+);
+
+// Rename a person everywhere at once (Admin). Updates the person record,
+// the linked member record, and every registration for that person in one
+// transaction, so the roster and the member directory can never disagree.
+// My Profile keeps the name non-editable — the organizer fixes names here.
+router.patch('/admin/people/:id/name', auth.requireAdmin, (req, res) =>
+  handle(async () => {
+    const personId = asInt(req.params.id);
+    if (!personId) throw err(400, 'Person id is required.');
+    const name = cleanStr(req.body && req.body.name, 200);
+    if (!name) throw err(400, 'Name cannot be empty.');
+    const person = (await pool.query('SELECT id, name FROM people WHERE id = $1', [personId])).rows[0];
+    if (!person) throw err(404, 'Person not found.');
+    const clash = (await pool.query(
+      'SELECT id FROM people WHERE lower(name) = lower($1) AND id <> $2',
+      [name, personId]
+    )).rows[0];
+    if (clash) throw err(409, 'Another person already has that name.');
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('UPDATE people SET name = $1, updated_at = now() WHERE id = $2', [name, personId]);
+      await client.query('UPDATE members SET name = $1 WHERE person_id = $2', [name, personId]);
+      await client.query('UPDATE registrations SET name = $1 WHERE person_id = $2', [name, personId]);
+      // A pending signup not yet linked to a person still carries the old
+      // spelling under the same name — rename it too.
+      await client.query(
+        'UPDATE registrations SET name = $1 WHERE person_id IS NULL AND lower(name) = lower($2)',
+        [name, person.name]
+      );
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+    res.json({ ok: true, name });
   }, req, res)
 );
 
