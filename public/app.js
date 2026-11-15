@@ -2939,7 +2939,7 @@ async function renderRREvent(id) {
         <div class="btnrow"><button class="btn small" id="rr-save-settings">Save settings</button></div>` : '<p class="muted">Free charity night — no fee, no payouts. To run this as a money ball instead, delete it and create a new night.</p>'}
         <div class="btnrow"><button class="btn" id="rr-build" ${teams.length < 2 ? 'disabled' : ''}>Build the night</button>
         <button class="btn secondary small" id="rr-delete">Delete night</button></div>
-        <p class="muted">Building pairs every team against every other team once — ${teams.length} teams make ${teams.length * (teams.length - 1) / 2} games to 15.</p>
+        <p class="muted">Building pairs every team against every other team once — ${teams.length} teams make ${teams.length * (teams.length - 1) / 2} games to 11.</p>
       </div>`;
     }
   }
@@ -2952,7 +2952,7 @@ async function renderRREvent(id) {
       const bye = byeForRound(m.round);
       return `<div class="match-card">
         <div class="teams">Match ${m.round}</div>
-        <p class="muted">First to ${m.target_score}, win by 1</p>
+        <p class="muted">First to ${m.target_score}, win by 2</p>
         <div class="muted">Court ${m.court} · Round ${m.round}</div>
         <div class="teams">${esc(byId.get(m.team1_id)?.label || '')}</div>
         <div class="vs">VS</div>
@@ -3114,7 +3114,8 @@ function renderRRScoreView(id, m, byId) {
     if (n1 == null || n2 == null) { toast('Enter both scores.'); return; }
     if (!Number.isInteger(n1) || !Number.isInteger(n2) || n1 < 0 || n2 < 0 || n1 > 30 || n2 > 30) { toast('Scores must be whole numbers from 0 to 30.'); return; }
     if (n1 === n2) { toast('Scores cannot tie.'); return; }
-    if (Math.max(n1, n2) !== m.target_score) { toast(`One side must reach ${m.target_score} (games to ${m.target_score}).`); return; }
+    if (Math.max(n1, n2) < m.target_score) { toast(`One side must reach ${m.target_score} (games to ${m.target_score}).`); return; }
+    if (Math.abs(n1 - n2) < 2) { toast(`Win by 2 — ${Math.max(n1, n2)}-${Math.min(n1, n2)} is not enough. Play on.`); return; }
     try {
       await post(`/api/round-robin/events/${id}/matches/${m.id}/score`, { score1: n1, score2: n2 });
       toast('Score saved.');
