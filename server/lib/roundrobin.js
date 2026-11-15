@@ -4,16 +4,17 @@
 // plain node.
 //
 // Schedule: fixed doubles teams stay together all night. Every team plays
-// every other team once (circle method). One game to 11, win by 2, per
-// match — the same single-game shape as a league match. Each match gets its
-// own court (2 teams to a court). With an odd team count one team sits out
-// each round (a rotating bye, derived from the schedule — no bye rows are
-// stored); the night stays a round robin, not a bracket.
+// every other team once (circle method). One game to 11, first to 11
+// (win by 1 — no deuce), per match — the same single-game shape as a
+// league match. Each match gets its own court (2 teams to a court). With an
+// odd team count one team sits out each round (a rotating bye, derived from
+// the schedule — no bye rows are stored); the night stays a round robin,
+// not a bracket.
 //
 // Standings: ranked by E/P percentage (points earned / possible), tie-break
-// match wins — the same ordering as league standings. With win-by-2 a game
-// can run past 11 (12-10, 13-11), so "possible" for a match is the winning
-// score — that keeps E/P at or below 100%.
+// match wins — the same ordering as league standings. The winner always
+// reaches exactly 11, so "possible" for a match is the winning score (11)
+// — that keeps E/P at or below 100%.
 //
 // Payouts: the pot is players x entry fee. The House Rule (the default)
 // pays 3rd place its team entry fee back and splits the rest 60/40 between
@@ -72,9 +73,8 @@ function scoreError(score1, score2, target) {
   if (score1 == null || score2 == null) return 'Enter both scores.';
   if (score1 === score2) return 'Scores cannot tie.';
   const hi = Math.max(score1, score2);
-  const lo = Math.min(score1, score2);
   if (hi < target) return `One side must reach ${target} (games to ${target}).`;
-  if (hi - lo < 2) return `Win by 2 — ${hi}-${lo} is not enough. Play on.`;
+  if (hi > target) return `First to ${target} — the game ends at ${target}.`;
   return null;
 }
 
