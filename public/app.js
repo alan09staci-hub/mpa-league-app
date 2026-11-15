@@ -269,6 +269,8 @@ function route() {
   if (parts[0] === 'members' && parts[1]) return renderMemberProfile(+parts[1]);
   if (parts[0] === 'members') return renderMembersPage();
   if (parts[0] === 'join') return renderJoinPage(parts[1] ? +parts[1] : null);
+  if (parts[0] === 'roundrobin' && parts[1]) return renderRREvent(+parts[1]);
+  if (parts[0] === 'roundrobin') return renderRRList();
   if (parts[0] === 'myleagues') return renderMyLeagues();
   if (parts[0] === 'dashboard') return renderDashboard();
   if (parts[0] === 'profile') return renderProfile();
@@ -317,7 +319,9 @@ async function renderHome() {
         <span class="stat"><strong>0</strong> Team Leagues</span>
       </div>
       <div class="card"><strong>Members</strong> — ${members.length} free MPA member(s).
-        <div class="btnrow"><a class="btn secondary small" href="#/members">Open Members directory</a></div></div>`;
+        <div class="btnrow"><a class="btn secondary small" href="#/members">Open Members directory</a></div></div>
+      <div class="card"><strong>Round Robin</strong> — one-off charity and money-ball nights with fixed teams, separate from leagues.
+        <div class="btnrow"><a class="btn secondary small" href="#/roundrobin">Open Round Robin</a></div></div>`;
     const el = document.getElementById('leagues');
     if (!leagues.length) {
       el.innerHTML = `<div class="card"><p>No leagues yet. An admin can create one from the Admin page.</p></div>`;
@@ -2795,3 +2799,337 @@ async function renderCourtSheet(leagueId, sessionId) {
 
 renderIdentity();
 render();
+
+// ---------- Round Robin ----------
+// One-off nights, separate from leagues. Fixed doubles teams stay together
+// all night; every team plays every other team once, one game to 15.
+// Free charity nights have no fee and no payouts; money-ball nights have a
+// per-person entry fee and a payout structure (House Rule default: 3rd place
+// gets its entry fee back, 1st and 2nd split the rest 60/40).
+// Scoring mirrors the league flow: one match at a time, SCORE button,
+// dedicated score screen, finished matches below.
+let rrScoreMatchId = null;
+
+const RR_PAYOUTS = [
+  { id: 'house', label: 'House rule — 3rd gets entry back, 1st & 2nd split the rest 60/40' },
+  { id: 'winner-take-all', label: 'Winner-take-all — 100%' },
+  { id: 'top-two-60-40', label: 'Top-two — 60/40' },
+  { id: 'top-two-66-33', label: 'Top-two — 66.7/33.3' },
+  { id: 'top-three-50-30-20', label: 'Top-three — 50/30/20' },
+  { id: 'top-four-40-30-20-10', label: 'Top-four — 40/30/20/10' },
+];
+
+function rrMoney(cents) {
+  const d = cents / 100;
+  return '$' + (Number.isInteger(d) ? String(d) : d.toFixed(2));
+}
+function rrKindLabel(kind) {
+  return kind === 'money' ? 'Money Ball' : 'Free Charity';
+}
+function rrStatusLabel(s) {
+  return s === 'setup' ? 'Setting up' : s === 'playing' ? 'Playing' : 'Finished';
+}
+function rrPayoutLabel(id) {
+  const p = RR_PAYOUTS.find((x) => x.id === id);
+  return p ? p.label : id;
+}
+
+async function renderRRList() {
+  app.innerHTML = `<h1>Round Robin</h1>
+    <p class="muted">One-off nights, separate from leagues. Fixed teams stay together all night — every team plays every other team once.</p>
+    <div id="rrList"><p class="muted">Loading…</p></div>
+    <div id="rrNew"></div>`;
+  const me = await api('/api/admin/me').catch(() => ({ admin: false }));
+  const { events } = await api('/api/round-robin/events').catch(() => ({ events: [] }));
+  document.getElementById('rrList').innerHTML = events.length
+    ? events
+        .map(
+          (ev) => `<div class="card">
+        <strong>${esc(ev.name)}</strong><br>
+        <span class="muted">${esc(fmtDateShort(ev.event_date))} · ${rrKindLabel(ev.kind)} · ${rrStatusLabel(ev.status)} · ${ev.team_count} team(s)${ev.kind === 'money' ? ` · ${rrMoney(ev.fee_cents)} per person` : ''}${ev.match_count ? ` · ${ev.scored_count}/${ev.match_count} scored` : ''}</span>
+        <div class="btnrow"><a class="btn small" href="#/roundrobin/${ev.id}">Open</a></div>
+      </div>`
+        )
+        .join('')
+    : `<div class="card"><p>No round robin nights yet.</p></div>`;
+  if (!me.admin) return;
+  document.getElementById('rrNew').innerHTML = `
+    <div class="card"><h3>New round robin</h3>
+      <p><input type="text" id="rr-name" placeholder="Night name — e.g. Friday Money Ball" style="width:100%"></p>
+      <p><input type="date" id="rr-date"></p>
+      <div class="level-pick" id="rr-kind">
+        <button type="button" data-kind="charity" class="picked">Free Charity</button>
+        <button type="button" data-kind="money">Money Ball</button>
+      </div>
+      <div id="rr-money-fields" hidden>
+        <p>Entry fee per person ($) <input type="text" inputmode="decimal" id="rr-fee" value="10" style="width:80px"></p>
+        <p>Payout <select id="rr-payout">${RR_PAYOUTS.map((p) => `<option value="${p.id}">${esc(p.label)}</option>`).join('')}</select></p>
+      </div>
+      <div class="btnrow"><button class="btn" id="rr-create">Create</button></div>
+    </div>`;
+  let kind = 'charity';
+  document.querySelectorAll('#rr-kind button').forEach((b) => {
+    b.onclick = () => {
+      kind = b.dataset.kind;
+      document.querySelectorAll('#rr-kind button').forEach((x) => x.classList.toggle('picked', x === b));
+      document.getElementById('rr-money-fields').hidden = kind !== 'money';
+    };
+  });
+  document.getElementById('rr-create').onclick = async () => {
+    const name = document.getElementById('rr-name').value.trim();
+    const date = document.getElementById('rr-date').value;
+    if (!name) { toast('Give the night a name.'); return; }
+    if (!date) { toast('Pick a date.'); return; }
+    const body = { name, event_date: date, kind };
+    if (kind === 'money') {
+      const fee = parseFloat(document.getElementById('rr-fee').value);
+      if (Number.isNaN(fee) || fee < 0) { toast('Entry fee must be $0 or more.'); return; }
+      body.fee_cents = Math.round(fee * 100);
+      body.payout = document.getElementById('rr-payout').value;
+    }
+    try {
+      const { event } = await post('/api/admin/round-robin/events', body);
+      toast('Night created.');
+      location.hash = `#/roundrobin/${event.id}`;
+    } catch (e) { toast(e.message); }
+  };
+}
+
+async function renderRREvent(id) {
+  // Same refresh discipline as game days: clear the old timer before
+  // setting a new one. No refresh while a score screen is open, so typed
+  // scores are never wiped mid-entry.
+  clearInterval(refreshTimer);
+  const data = await api(`/api/round-robin/events/${id}`).catch((e) => ({ error: e.message }));
+  if (data.error || !data.event) {
+    app.innerHTML = `<div class="banner warn">${esc(data.error || 'Not found.')}</div>`;
+    return;
+  }
+  const { event, teams, matches, standings, payouts, byes, isAdmin } = data;
+  const byId = new Map(teams.map((t) => [t.id, t]));
+  const finished = event.status === 'completed';
+  if (rrScoreMatchId) {
+    const open = matches.find((m) => m.id === rrScoreMatchId);
+    if (open) { renderRRScoreView(id, open, byId); return; }
+    rrScoreMatchId = null;
+  }
+  let html = `<h1>${esc(event.name)}</h1>
+    <p class="muted">${esc(fmtDateShort(event.event_date))} · ${rrKindLabel(event.kind)} · ${rrStatusLabel(event.status)}</p>`;
+  if (finished) html += `<div class="banner finished">Night finished — final standings and payouts below.</div>`;
+  if (event.kind === 'money' && payouts) {
+    html += `<div class="card"><strong>Pot ${rrMoney(payouts.potCents)}</strong> <span class="muted">— ${teams.length * 2} players × ${rrMoney(event.fee_cents)} · ${esc(rrPayoutLabel(event.payout))}</span>
+      ${payouts.places
+        .map(
+          (p) => `<div>${p.place === 1 ? '1st' : p.place === 2 ? '2nd' : p.place === 3 ? '3rd' : p.place + 'th'} place — <strong>${rrMoney(p.amountCents)}</strong>${p.teamId ? ` · ${esc(byId.get(p.teamId)?.label || '')}` : ''}${p.note ? ` <span class="muted">(${esc(p.note)})</span>` : ''}</div>`
+        )
+        .join('')}
+    </div>`;
+  }
+  if (event.status === 'setup') {
+    html += `<div class="card"><h3>Teams — ${teams.length}</h3>
+      ${teams.map((t) => `<div>${esc(t.label)}${isAdmin ? ` <button class="btn secondary small" data-rm-team="${t.id}">Remove</button>` : ''}</div>`).join('') || '<p class="muted">No teams yet.</p>'}
+      ${isAdmin ? `<p><input type="text" id="rr-p1" placeholder="Player 1" style="width:45%"> <input type="text" id="rr-p2" placeholder="Player 2" style="width:45%"></p>
+      <div class="btnrow"><button class="btn small" id="rr-add-team">Add team</button></div>` : '<p class="muted">Waiting for the organizer to add teams and build the night.</p>'}
+    </div>`;
+    if (isAdmin) {
+      html += `<div class="card"><h3>Night settings</h3>
+        ${event.kind === 'money' ? `<p>Entry fee per person ($) <input type="text" inputmode="decimal" id="rr-edit-fee" value="${(event.fee_cents / 100).toFixed(2)}" style="width:80px"></p>
+        <p>Payout <select id="rr-edit-payout">${RR_PAYOUTS.map((p) => `<option value="${p.id}"${p.id === event.payout ? ' selected' : ''}>${esc(p.label)}</option>`).join('')}</select></p>
+        <div class="btnrow"><button class="btn small" id="rr-save-settings">Save settings</button></div>` : '<p class="muted">Free charity night — no fee, no payouts. To run this as a money ball instead, delete it and create a new night.</p>'}
+        <div class="btnrow"><button class="btn" id="rr-build" ${teams.length < 2 ? 'disabled' : ''}>Build the night</button>
+        <button class="btn secondary small" id="rr-delete">Delete night</button></div>
+        <p class="muted">Building pairs every team against every other team once — ${teams.length} teams make ${teams.length * (teams.length - 1) / 2} games to 15.</p>
+      </div>`;
+    }
+  }
+  if (matches.length) {
+    const games = matches;
+    const current = games.find((m) => m.score1 == null);
+    const done = games.filter((m) => m.score1 != null);
+    const byeForRound = (round) => byes.find((b) => b.round === round);
+    const cardHtml = (m, showScore) => {
+      const bye = byeForRound(m.round);
+      return `<div class="match-card">
+        <div class="teams">Match ${m.round}</div>
+        <p class="muted">First to ${m.target_score}, win by 1</p>
+        <div class="muted">Court ${m.court} · Round ${m.round}</div>
+        <div class="teams">${esc(byId.get(m.team1_id)?.label || '')}</div>
+        <div class="vs">VS</div>
+        <div class="teams">${esc(byId.get(m.team2_id)?.label || '')}</div>
+        ${bye ? `<div class="bye-row">${esc(byId.get(bye.teamId)?.label || '')} — BYE</div>` : ''}
+        ${m.score1 != null ? `<p>${m.score1} – ${m.score2}</p>` : ''}
+        ${showScore && !finished ? `<button class="btn" data-rr-score="${m.id}">SCORE</button>` : ''}
+      </div>`;
+    };
+    html += `<h2>Matches</h2>`;
+    if (!current) {
+      html += `<div class="card"><p><strong>All matches scored</strong></p></div>`;
+    } else {
+      html += cardHtml(current, true);
+    }
+    if (done.length) html += `<h3>Finished</h3>` + done.map((m) => cardHtml(m, true)).join('');
+    if (standings.length && standings.some((s) => s.played > 0)) {
+      html += `<div class="card"><h3>Standings</h3>
+        ${standings
+          .map(
+            (s) => `<div>${s.rank}. <strong>${esc(s.label)}</strong> — ${s.w}W-${s.l}L · E/P ${s.ep == null ? '—' : (s.ep * 100).toFixed(1) + '%'}</div>`
+          )
+          .join('')}
+      </div>`;
+    }
+    if (isAdmin && event.status === 'playing') {
+      html += `<div class="btnrow"><button class="btn" id="rr-finish">Finish the night</button></div>`;
+    }
+    if (isAdmin && finished) {
+      html += `<div class="btnrow"><button class="btn secondary" id="rr-reopen">Reopen the night</button></div>`;
+    }
+  }
+  app.innerHTML = html;
+  app.querySelectorAll('button[data-rr-score]').forEach((b) => {
+    b.onclick = () => { rrScoreMatchId = +b.dataset.rrScore; renderRREvent(id); };
+  });
+  app.querySelectorAll('button[data-rm-team]').forEach((b) => {
+    b.onclick = async () => {
+      try {
+        await api(`/api/admin/round-robin/events/${id}/teams/${b.dataset.rmTeam}`, { method: 'DELETE' });
+        renderRREvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  });
+  const addBtn = document.getElementById('rr-add-team');
+  if (addBtn) {
+    addBtn.onclick = async () => {
+      const p1 = document.getElementById('rr-p1').value.trim();
+      const p2 = document.getElementById('rr-p2').value.trim();
+      if (!p1 || !p2) { toast('Enter both players’ names.'); return; }
+      try {
+        await post(`/api/admin/round-robin/events/${id}/teams`, { player1: p1, player2: p2 });
+        renderRREvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const saveBtn = document.getElementById('rr-save-settings');
+  if (saveBtn) {
+    saveBtn.onclick = async () => {
+      const fee = parseFloat(document.getElementById('rr-edit-fee').value);
+      if (Number.isNaN(fee) || fee < 0) { toast('Entry fee must be $0 or more.'); return; }
+      try {
+        await api(`/api/admin/round-robin/events/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ fee_cents: Math.round(fee * 100), payout: document.getElementById('rr-edit-payout').value }),
+        });
+        toast('Settings saved.');
+        renderRREvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const buildBtn = document.getElementById('rr-build');
+  if (buildBtn) {
+    buildBtn.onclick = async () => {
+      try {
+        const r = await post(`/api/admin/round-robin/events/${id}/build`, {});
+        toast(`${r.matches} games built over ${r.rounds} rounds.`);
+        renderRREvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const delBtn = document.getElementById('rr-delete');
+  if (delBtn) {
+    delBtn.onclick = async () => {
+      if (!confirm('Delete this night and all its teams?')) return;
+      try {
+        await api(`/api/admin/round-robin/events/${id}`, { method: 'DELETE' });
+        toast('Night deleted.');
+        location.hash = '#/roundrobin';
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const finBtn = document.getElementById('rr-finish');
+  if (finBtn) {
+    finBtn.onclick = async () => {
+      try {
+        await post(`/api/admin/round-robin/events/${id}/finish`, {});
+        toast('Night finished.');
+        renderRREvent(id);
+      } catch (e) {
+        if (/unscored/.test(e.message) && confirm(`${e.message} Finish anyway?`)) {
+          try {
+            await post(`/api/admin/round-robin/events/${id}/finish`, { force: true });
+            toast('Night finished.');
+            renderRREvent(id);
+          } catch (e2) { toast(e2.message); }
+        } else if (!/unscored/.test(e.message)) {
+          toast(e.message);
+        }
+      }
+    };
+  }
+  const reopenBtn = document.getElementById('rr-reopen');
+  if (reopenBtn) {
+    reopenBtn.onclick = async () => {
+      try {
+        await post(`/api/admin/round-robin/events/${id}/reopen`, {});
+        toast('Night reopened.');
+        renderRREvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  if (!rrScoreMatchId) {
+    refreshTimer = setInterval(() => renderRREvent(id), 30000);
+  }
+}
+
+// Dedicated one-match score screen, mirroring the league flow: stacked
+// names, plain score boxes, white card.
+function renderRRScoreView(id, m, byId) {
+  const t1 = esc(byId.get(m.team1_id)?.label || '');
+  const t2 = esc(byId.get(m.team2_id)?.label || '');
+  const scored = m.score1 != null;
+  app.innerHTML = `
+    <div class="match-card">
+      <h3>Match ${m.round} · Court ${m.court} · Round ${m.round}</h3>
+      <p class="muted">Games to ${m.target_score}</p>
+      <div class="teams">${t1}</div>
+      <div class="score-row">
+        <input type="text" inputmode="numeric" id="rr-s1" value="${scored ? m.score1 : ''}" placeholder="—" aria-label="Team 1 score">
+      </div>
+      <div class="vs" style="text-align:center">VS</div>
+      <div class="teams">${t2}</div>
+      <div class="score-row">
+        <input type="text" inputmode="numeric" id="rr-s2" value="${scored ? m.score2 : ''}" placeholder="—" aria-label="Team 2 score">
+      </div>
+      <div class="score-row">
+        <button class="btn" id="rr-svSave">Save score</button>
+        ${scored ? `<button class="btn secondary small" id="rr-svClear">Clear</button>` : ''}
+        <button class="btn secondary" id="rr-svBack">Back</button>
+      </div>
+    </div>`;
+  document.getElementById('rr-svBack').onclick = () => { rrScoreMatchId = null; renderRREvent(id); };
+  document.getElementById('rr-svSave').onclick = async () => {
+    const s1 = document.getElementById('rr-s1').value;
+    const s2 = document.getElementById('rr-s2').value;
+    const n1 = s1 === '' ? null : +s1;
+    const n2 = s2 === '' ? null : +s2;
+    if (n1 == null || n2 == null) { toast('Enter both scores.'); return; }
+    if (!Number.isInteger(n1) || !Number.isInteger(n2) || n1 < 0 || n2 < 0 || n1 > 30 || n2 > 30) { toast('Scores must be whole numbers from 0 to 30.'); return; }
+    if (n1 === n2) { toast('Scores cannot tie.'); return; }
+    if (Math.max(n1, n2) !== m.target_score) { toast(`One side must reach ${m.target_score} (games to ${m.target_score}).`); return; }
+    try {
+      await post(`/api/round-robin/events/${id}/matches/${m.id}/score`, { score1: n1, score2: n2 });
+      toast('Score saved.');
+      rrScoreMatchId = null;
+      renderRREvent(id);
+    } catch (e) { toast(e.message); }
+  };
+  const clearBtn = document.getElementById('rr-svClear');
+  if (clearBtn) {
+    clearBtn.onclick = async () => {
+      try {
+        await post(`/api/round-robin/events/${id}/matches/${m.id}/score`, { score1: null, score2: null });
+        toast('Score cleared.');
+        rrScoreMatchId = null;
+        renderRREvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+}
