@@ -50,6 +50,7 @@ function renderIdentity() {
       <a href="#/dashboard">My Dashboard</a>
       <a href="#/profile">My Profile</a>
       <a href="#/myleagues">My Leagues</a>
+      <a href="#/roundrobin">Round Robin</a>
       <button id="acctSwitch">Switch identity</button>
     </div>
   </div>`;
@@ -386,7 +387,7 @@ async function renderLanding(id, mine) {
           <span class="muted small">${esc(l.type)} · ${esc(l.skill)} · ${esc(l.format)} · ${esc(l.day)}s ${esc(fmtClock(l.time))} · ${esc(l.season || 'Season not set')}</span>
           <div class="btnrow"><a class="btn green small" href="#/join/${l.id}">Join this league</a></div>
         </div>`).join('')}` : ''}
-      <div class="btnrow"><a class="btn secondary" href="#/members">Members</a><a class="btn secondary" href="#/myleagues">My Leagues</a></div>`;
+      <div class="btnrow"><a class="btn secondary" href="#/members">Members</a><a class="btn secondary" href="#/myleagues">My Leagues</a><a class="btn secondary" href="#/roundrobin">Round Robin</a></div>`;
     bindFavButtons();
   } catch (e) {
     app.innerHTML = `<div class="banner warn">${esc(e.message)}</div>`;
