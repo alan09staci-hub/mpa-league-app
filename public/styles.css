@@ -146,6 +146,15 @@ table.standings tr.you td { background: #fff8e1; }
 .badge.completed { background: #e8e6e1; color: #555; }
 .badge.optin { background: var(--green-bg); color: var(--green); }
 .badge.done { background: var(--green-bg); color: var(--green); }
+.badge.playing { background: var(--yellow); color: var(--black); }
+.badge.next { background: #fff3cd; color: #7a5b00; }
+.badge.upcoming { background: #e8e6e1; color: #555; }
+
+/* ---------- round robin ---------- */
+.rr-team-win, .rr-team-lose { display: flex; justify-content: space-between; align-items: center; gap: 8px; border-radius: 6px; padding: 6px 10px; color: #fff; }
+.rr-team-win { background: var(--green); }
+.rr-team-lose { background: var(--red); }
+.rr-team-win .rr-score, .rr-team-lose .rr-score { background: rgba(255,255,255,.25); border-radius: 4px; padding: 2px 8px; }
 
 /* ---------- game day ---------- */
 .banner { border-radius: 10px; padding: 10px 12px; margin: 10px 0; font-size: 14px; }
