@@ -2958,10 +2958,9 @@ async function renderRREvent(id) {
       const t2Win = scored && m.score2 > m.score1;
       const teamRow = (label, won, lost, score) =>
         `<div class="teams${won ? ' rr-team-win' : lost ? ' rr-team-lose' : ''}">${esc(label)}${scored ? ` <span class="rr-score">${score}</span>` : ''}</div>`;
-      // SCORE button: enter a score on an unplayed match in the round in
-      // play; fix a score already entered (same as the league's finished
-      // list). Future rounds get no button at all.
-      const canScore = !finished && (scored || isCurrentRound);
+      // SCORE button: only on an unplayed match in the round in play —
+      // the preview shows no button on a match that already has a score.
+      const canScore = !finished && !scored && isCurrentRound;
       return `<div class="match-card">
         <div class="teams">Match ${numOf.get(m.id)}</div>
         <p class="muted">First to ${m.target_score}, win by 1</p>
@@ -2989,7 +2988,7 @@ async function renderRREvent(id) {
     const orderedRounds = currentRound == null ? rounds : [currentRound, ...rounds.filter((r) => r !== currentRound)];
     for (const r of orderedRounds) {
       const [cls, label] = roundStatus(r);
-      html += `<h3>Round ${r} <span class="badge ${cls}">${label}</span></h3>` + games.filter((m) => m.round === r).map((m) => cardHtml(m, r === currentRound)).join('');
+      html += `<section class="rr-round"><h3>Round ${r} <span class="badge ${cls}">${label}</span></h3><div class="rr-matches">` + games.filter((m) => m.round === r).map((m) => cardHtml(m, r === currentRound)).join('') + `</div></section>`;
     }
     if (standings.length && standings.some((s) => s.played > 0)) {
       html += `<div class="card"><h3>Standings</h3>
