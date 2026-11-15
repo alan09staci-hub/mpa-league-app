@@ -155,6 +155,11 @@ table.standings tr.you td { background: #fff8e1; }
 .rr-team-win { background: var(--green); }
 .rr-team-lose { background: var(--red); }
 .rr-team-win .rr-score, .rr-team-lose .rr-score { background: rgba(255,255,255,.25); border-radius: 4px; padding: 2px 8px; }
+.rr-round { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 10px 0; }
+.rr-round h3 { margin-top: 0; }
+.rr-matches { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.rr-matches .match-card { margin: 0; max-width: none; }
+@media (max-width: 860px) { .rr-matches { grid-template-columns: 1fr; } }
 
 /* ---------- game day ---------- */
 .banner { border-radius: 10px; padding: 10px 12px; margin: 10px 0; font-size: 14px; }
