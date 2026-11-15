@@ -2922,11 +2922,22 @@ async function renderRREvent(id) {
     <p class="muted">${esc(fmtDateShort(event.event_date))} · ${rrKindLabel(event.kind)} · ${rrStatusLabel(event.status)}</p>`;
   if (finished) html += `<div class="banner finished">Night finished — final standings and payouts below.</div>`;
   if (event.kind === 'money' && payouts) {
+    const standingByTeam = new Map(standings.map((s) => [s.teamId, s]));
+    const placeLabel = (n) => ['1ST', '2ND', '3RD'][n - 1] || `${n}TH`;
     html += `<div class="card"><strong>Pot ${rrMoney(payouts.potCents)}</strong> <span class="muted">— ${teams.length * 2} players × ${rrMoney(event.fee_cents)} · ${esc(rrPayoutLabel(event.payout))}</span>
       ${payouts.places
-        .map(
-          (p) => `<div>${p.place === 1 ? '1st' : p.place === 2 ? '2nd' : p.place === 3 ? '3rd' : p.place + 'th'} place — <strong>${rrMoney(p.amountCents)}</strong>${p.teamId ? ` · ${esc(byId.get(p.teamId)?.label || '')}${finished ? '' : ' (leading)'}` : ''}${p.note ? ` <span class="muted">(${esc(p.note)})</span>` : ''}</div>`
-        )
+        .map((p) => {
+          const s = p.teamId != null ? standingByTeam.get(p.teamId) : null;
+          return `<div class="rr-place">
+            <div class="rr-medal m${p.place}">${p.place}</div>
+            <div class="rr-place-info">
+              <div class="rr-place-label">${placeLabel(p.place)} PLACE${finished ? '' : ' · LEADING'}</div>
+              <div class="rr-place-team">${s ? esc(s.label) : '<span class="muted">—</span>'}</div>
+              ${s ? `<div class="muted">${s.w}W–${s.l}L · E/P ${s.ep == null ? '—' : (s.ep * 100).toFixed(1) + '%'}</div>` : ''}
+            </div>
+            <div class="rr-place-amount"><strong>${rrMoney(p.amountCents)}</strong>${p.note ? `<div class="muted">${esc(p.note)}</div>` : ''}</div>
+          </div>`;
+        })
         .join('')}
     </div>`;
   }
