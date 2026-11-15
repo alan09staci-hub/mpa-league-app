@@ -2979,7 +2979,7 @@ async function renderRREvent(id) {
       </div>`;
     }
     if (isAdmin && event.status === 'playing') {
-      html += `<div class="btnrow"><button class="btn" id="rr-finish">Finish the night</button></div>`;
+      html += `<div class="btnrow"><button class="btn" id="rr-finish">Finish the night</button>${done.length === 0 ? '<button class="btn secondary" id="rr-rebuild">Rebuild the night</button>' : ''}</div>`;
     }
     if (isAdmin && finished) {
       html += `<div class="btnrow"><button class="btn secondary" id="rr-reopen">Reopen the night</button></div>`;
@@ -3063,6 +3063,17 @@ async function renderRREvent(id) {
           toast(e.message);
         }
       }
+    };
+  }
+  const rebuildBtn = document.getElementById('rr-rebuild');
+  if (rebuildBtn) {
+    rebuildBtn.onclick = async () => {
+      if (!confirm('Rebuild the schedule? No scores have been entered yet, so nothing is lost.')) return;
+      try {
+        const r = await post(`/api/admin/round-robin/events/${id}/build`, {});
+        toast(`${r.matches} games built over ${r.rounds} rounds.`);
+        renderRREvent(id);
+      } catch (e) { toast(e.message); }
     };
   }
   const reopenBtn = document.getElementById('rr-reopen');
