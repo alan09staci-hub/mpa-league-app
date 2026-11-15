@@ -2098,6 +2098,8 @@ function announceHtml({ league, sessions, members, memberCount, withEmail, withP
     `2. Become a free MPA member`,
     `3. Join the league — sign up here: ${APP_URL}/#/join/${league.id}`,
     ``,
+    `Tip: if the DUPR link won't open from your email or text, copy it and paste it into Safari.`,
+    ``,
     `Moultrie Pickleball Association`,
   ].join('\n');
   const emailBodyHtml = [
@@ -2106,6 +2108,7 @@ function announceHtml({ league, sessions, members, memberCount, withEmail, withP
     `<p><strong>Game days:</strong><br>${dayLines.map((d) => `• ${esc(d)} at ${esc(fmtClock(league.time))}`).join('<br>')}</p>`,
     `<p>Joining costs $20 (YMCA member) / $50 (non-member), paid on ReClique: <a href="${RECLIQUE_URL}">${RECLIQUE_URL}</a></p>`,
     `<p><strong>Three steps to join:</strong><br>1. Get a free DUPR account: <a href="${DUPR_SIGNUP_URL}">${DUPR_SIGNUP_URL}</a><br>2. Become a free MPA member<br>3. Join the league — sign up here: <a href="${APP_URL}/#/join/${league.id}">${APP_URL}/#/join/${league.id}</a></p>`,
+    `<p><em>Tip: if the DUPR link won't open from your email or text, copy it and paste it into Safari.</em></p>`,
     `<p>Moultrie Pickleball Association</p>`,
   ].join('');
   const textDraft = [
@@ -2113,6 +2116,7 @@ function announceHtml({ league, sessions, members, memberCount, withEmail, withP
     `Starts ${fmtDateShort(league.start_date)}, 8 weeks. $20 member / $50 non-member.`,
     `Sign up (about 2 minutes): ${APP_URL}/#/join/${league.id}`,
     `Need a DUPR account first (free): ${DUPR_SIGNUP_URL}`,
+    `Tip: if the DUPR link won't open from your email or text, copy it and paste it into Safari.`,
     `— Moultrie Pickleball Association`,
   ].join('\n');
   const emails = members.filter((m) => m.email).map((m) => m.email).join(', ');
@@ -2162,6 +2166,8 @@ function announceAllHtml({ leagues, members, memberCount, withEmail, withPhone }
     `2. Become a free MPA member`,
     `3. Pick your league and join: ${APP_URL}/`,
     ``,
+    `Tip: if the DUPR link won't open from your email or text, copy it and paste it into Safari.`,
+    ``,
     `Moultrie Pickleball Association`,
   ].join('\n');
   const emailBodyHtml = [
@@ -2169,6 +2175,7 @@ function announceAllHtml({ leagues, members, memberCount, withEmail, withPhone }
     ...(open.length ? [`<p>${open.map((l) => `• <strong>${esc(l.name)}</strong> — ${esc(l.type)} · Skill ${esc(l.skill)} · ${esc(l.format)}<br>${esc(l.day)}s ${esc(fmtClock(l.time))} · ${fmtDateShort(l.start_date)} – ${fmtDateShort(l.stop_date)} · ${l.player_count ?? ''} player(s)<br>Join: <a href="${APP_URL}/#/join/${l.id}">${APP_URL}/#/join/${l.id}</a>`).join('<br><br>')}</p>`] : [`<p>No leagues are open for registration right now — check back soon.</p>`]),
     `<p>Joining costs $20 (YMCA member) / $50 (non-member), paid on ReClique: <a href="${RECLIQUE_URL}">${RECLIQUE_URL}</a></p>`,
     `<p><strong>Three steps to join:</strong><br>1. Get a free DUPR account: <a href="${DUPR_SIGNUP_URL}">${DUPR_SIGNUP_URL}</a><br>2. Become a free MPA member<br>3. Pick your league and join: <a href="${APP_URL}/">${APP_URL}/</a></p>`,
+    `<p><em>Tip: if the DUPR link won't open from your email or text, copy it and paste it into Safari.</em></p>`,
     `<p>Moultrie Pickleball Association</p>`,
   ].join('');
   const textDraft = [
@@ -2176,6 +2183,7 @@ function announceAllHtml({ leagues, members, memberCount, withEmail, withPhone }
     ...open.map((l) => `• ${l.name} (${l.skill}, ${l.day}s ${fmtClock(l.time)})`),
     `See them all and join: ${APP_URL}/`,
     `$20 member / $50 non-member. Need a DUPR account first (free): ${DUPR_SIGNUP_URL}`,
+    `Tip: if the DUPR link won't open from your email or text, copy it and paste it into Safari.`,
     `— Moultrie Pickleball Association`,
   ].join('\n');
   const emails = members.filter((m) => m.email).map((m) => m.email).join(', ');
@@ -2222,6 +2230,8 @@ function announceJoinHtml({ members, memberCount, withEmail, withPhone }) {
     `Join here: ${APP_URL}/`,
     ``,
 
+    `Tip: if the DUPR link won't open from your email or text, copy it and paste it into Safari.`,
+    ``,
     `Moultrie Pickleball Association`,
   ].join('\n');
   const emailBodyHtml = [
@@ -2229,6 +2239,7 @@ function announceJoinHtml({ members, memberCount, withEmail, withPhone }) {
     `<p>MPA runs ladder leagues at the YMCA in Moultrie, GA — Coed Doubles, Women's Doubles, and more, for every skill level. Pick the league for your skill and play every week.</p>`,
     `<p><strong>Two steps to join:</strong><br>1. Get a free DUPR account: <a href="${DUPR_SIGNUP_URL}">${DUPR_SIGNUP_URL}</a><br>2. Become a free MPA member</p>`,
     `<p>Join here: <a href="${APP_URL}/">${APP_URL}/</a></p>`,
+    `<p><em>Tip: if the DUPR link won't open from your email or text, copy it and paste it into Safari.</em></p>`,
     `<p>Moultrie Pickleball Association</p>`,
   ].join('');
   const textDraft = [
@@ -2236,6 +2247,7 @@ function announceJoinHtml({ members, memberCount, withEmail, withPhone }) {
     `1. Get a free DUPR account: ${DUPR_SIGNUP_URL}`,
     `2. Become a free MPA member`,
     `Join here: ${APP_URL}/`,
+    `Tip: if the DUPR link won't open from your email or text, copy it and paste it into Safari.`,
     `— Moultrie Pickleball Association`,
   ].join('\n');
   const emails = members.filter((m) => m.email).map((m) => m.email).join(', ');
