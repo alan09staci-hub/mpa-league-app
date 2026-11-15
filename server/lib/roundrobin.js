@@ -4,13 +4,16 @@
 // plain node.
 //
 // Schedule: fixed doubles teams stay together all night. Every team plays
-// every other team once (circle method). One game to 15 per match, win by 1
-// — the same single-game shape as a league match. Each match gets its own
-// court. With an odd team count one team sits out each round (a bye, derived
-// from the schedule — no bye rows are stored).
+// every other team once (circle method). One game to 11, win by 2, per
+// match — the same single-game shape as a league match. Each match gets its
+// own court (2 teams to a court). With an odd team count one team sits out
+// each round (a rotating bye, derived from the schedule — no bye rows are
+// stored); the night stays a round robin, not a bracket.
 //
 // Standings: ranked by E/P percentage (points earned / possible), tie-break
-// match wins — the same ordering as league standings.
+// match wins — the same ordering as league standings. With win-by-2 a game
+// can run past 11 (12-10, 13-11), so "possible" for a match is the winning
+// score — that keeps E/P at or below 100%.
 //
 // Payouts: the pot is players x entry fee. The House Rule (the default)
 // pays 3rd place its team entry fee back and splits the rest 60/40 between
@@ -37,7 +40,7 @@ function payoutById(id) {
 }
 
 // teamIds: array of team ids (any order). Returns matches in round order:
-// [{ round, court, team1Id, team2Id, target: 15 }].
+// [{ round, court, team1Id, team2Id, target: 11 }].
 function buildSchedule(teamIds) {
   const teams = [...teamIds];
   if (teams.length < 2) return [];
@@ -52,7 +55,7 @@ function buildSchedule(teamIds) {
       const a = arr[i];
       const b = arr[n - 1 - i];
       if (a != null && b != null) {
-        out.push({ round: r + 1, court: court++, team1Id: a, team2Id: b, target: 15 });
+        out.push({ round: r + 1, court: court++, team1Id: a, team2Id: b, target: 11 });
       }
       // One side null means the other team sits out this round (bye).
     }
@@ -60,6 +63,19 @@ function buildSchedule(teamIds) {
     arr.splice(1, 0, arr.pop());
   }
   return out;
+}
+
+// Win-by-2 score rule for a game to `target` (11). Returns an error message
+// when the score cannot stand, else null. Used by the score endpoint and
+// mirrored on the client; unit-tested here.
+function scoreError(score1, score2, target) {
+  if (score1 == null || score2 == null) return 'Enter both scores.';
+  if (score1 === score2) return 'Scores cannot tie.';
+  const hi = Math.max(score1, score2);
+  const lo = Math.min(score1, score2);
+  if (hi < target) return `One side must reach ${target} (games to ${target}).`;
+  if (hi - lo < 2) return `Win by 2 — ${hi}-${lo} is not enough. Play on.`;
+  return null;
 }
 
 // teams: [{ id, player1, player2 }]. matches: rows with team1_id, team2_id,
@@ -77,11 +93,13 @@ function computeStandings(teams, matches) {
     const a = byId.get(m.team1_id);
     const b = byId.get(m.team2_id);
     if (!a || !b) continue;
-    const target = m.target_score || 15;
+    // Win-by-2: a game can run past 11, so "possible" is the winning score
+    // of that game — E/P never exceeds 100%.
+    const possible = Math.max(m.score1, m.score2);
     a.played += 1;
     b.played += 1;
-    a.possible += target;
-    b.possible += target;
+    a.possible += possible;
+    b.possible += possible;
     a.earned += m.score1;
     a.against += m.score2;
     b.earned += m.score2;
@@ -152,4 +170,4 @@ function computePayouts({ kind, feeCents, payoutId, teamCount }) {
   return { potCents: pot, places: paid };
 }
 
-module.exports = { PAYOUTS, payoutById, buildSchedule, computeStandings, computePayouts };
+module.exports = { PAYOUTS, payoutById, buildSchedule, computeStandings, computePayouts, scoreError };
