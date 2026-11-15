@@ -2952,7 +2952,7 @@ async function renderRREvent(id) {
       const bye = byeForRound(m.round);
       return `<div class="match-card">
         <div class="teams">Match ${m.round}</div>
-        <p class="muted">First to ${m.target_score}, win by 2</p>
+        <p class="muted">First to ${m.target_score}, win by 1</p>
         <div class="muted">Court ${m.court} · Round ${m.round}</div>
         <div class="teams">${esc(byId.get(m.team1_id)?.label || '')}</div>
         <div class="vs">VS</div>
@@ -2979,10 +2979,10 @@ async function renderRREvent(id) {
       </div>`;
     }
     if (isAdmin && event.status === 'playing') {
-      html += `<div class="btnrow"><button class="btn" id="rr-finish">Finish the night</button>${done.length === 0 ? '<button class="btn secondary" id="rr-rebuild">Rebuild the night</button>' : ''}</div>`;
+      html += `<div class="btnrow"><button class="btn" id="rr-finish">Finish the night</button>${done.length === 0 ? '<button class="btn secondary" id="rr-rebuild">Rebuild the night</button>' : ''}<button class="btn secondary" id="rr-delete">Delete night</button></div>`;
     }
     if (isAdmin && finished) {
-      html += `<div class="btnrow"><button class="btn secondary" id="rr-reopen">Reopen the night</button></div>`;
+      html += `<div class="btnrow"><button class="btn secondary" id="rr-reopen">Reopen the night</button><button class="btn secondary" id="rr-delete">Delete night</button></div>`;
     }
   }
   app.innerHTML = html;
@@ -3037,7 +3037,7 @@ async function renderRREvent(id) {
   const delBtn = document.getElementById('rr-delete');
   if (delBtn) {
     delBtn.onclick = async () => {
-      if (!confirm('Delete this night and all its teams?')) return;
+      if (!confirm('Delete this night, its teams and all its scores? This cannot be undone.')) return;
       try {
         await api(`/api/admin/round-robin/events/${id}`, { method: 'DELETE' });
         toast('Night deleted.');
@@ -3126,7 +3126,7 @@ function renderRRScoreView(id, m, byId) {
     if (!Number.isInteger(n1) || !Number.isInteger(n2) || n1 < 0 || n2 < 0 || n1 > 30 || n2 > 30) { toast('Scores must be whole numbers from 0 to 30.'); return; }
     if (n1 === n2) { toast('Scores cannot tie.'); return; }
     if (Math.max(n1, n2) < m.target_score) { toast(`One side must reach ${m.target_score} (games to ${m.target_score}).`); return; }
-    if (Math.abs(n1 - n2) < 2) { toast(`Win by 2 — ${Math.max(n1, n2)}-${Math.min(n1, n2)} is not enough. Play on.`); return; }
+    if (Math.max(n1, n2) > m.target_score) { toast(`First to ${m.target_score} — the game ends at ${m.target_score}.`); return; }
     try {
       await post(`/api/round-robin/events/${id}/matches/${m.id}/score`, { score1: n1, score2: n2 });
       toast('Score saved.');
