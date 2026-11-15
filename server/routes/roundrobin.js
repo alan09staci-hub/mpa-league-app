@@ -1,7 +1,7 @@
 'use strict';
 // Round Robin routes. One-off nights, separate from leagues: fixed doubles
 // teams stay together all night, every team plays every other team once,
-// one game to 15 per match. Free charity games have no fee and no payouts;
+// one game to 11 per match. Free charity games have no fee and no payouts;
 // money-ball events have a per-person entry fee and a payout structure.
 // Public: list events, view an event, enter a score (a view, not a lock —
 // the same trade-off as league game days). Admin (passcode,
@@ -77,12 +77,13 @@ async function eventDetail(event, req) {
     payoutId: event.payout,
     teamCount: teams.length,
   });
-  // Team names appear next to the money only once the night is final.
+  // Team names appear next to the money once a team has played: the
+  // leaders while the night is running, the final winners once finished.
   const places = payout
-    ? payout.places.map((p) => ({
-        ...p,
-        teamId: event.status === 'completed' ? standings[p.place - 1]?.team.id ?? null : null,
-      }))
+    ? payout.places.map((p) => {
+        const leader = standings[p.place - 1];
+        return { ...p, teamId: leader && leader.played > 0 ? leader.team.id : null };
+      })
     : [];
   // Byes: a team with no match in a round sits that round out.
   const maxRound = matches.reduce((m, x) => Math.max(m, x.round), 0);
