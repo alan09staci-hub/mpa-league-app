@@ -73,7 +73,7 @@ router.get('/members', (req, res) =>
       `SELECT m.id, m.person_id, m.name, m.dupr_id, m.dupr_rating,
               m.dupr_profile_url, m.photo_url, m.resides, m.age, m.country,
               m.nickname, m.gender, m.height, m.handed,
-              m.singles_rating, m.skinny_rating,
+              m.singles_rating, m.skinny_rating, m.self_rated,
               m.joined_at,
               COALESCE((SELECT json_agg(l.name)
                           FROM player_leagues pl JOIN leagues l ON l.id = pl.league_id
@@ -94,7 +94,7 @@ router.get('/members/search', (req, res) =>
       `SELECT m.id, m.person_id, m.name, m.dupr_id, m.dupr_rating,
               m.dupr_profile_url, m.photo_url, m.resides, m.age, m.country,
               m.nickname, m.gender, m.height, m.handed,
-              m.singles_rating, m.skinny_rating
+              m.singles_rating, m.skinny_rating, m.self_rated
          FROM members m WHERE lower(m.name) LIKE '%' || lower($1) || '%'
         ORDER BY m.name ASC LIMIT 20`,
       [q]
@@ -103,7 +103,8 @@ router.get('/members/search', (req, res) =>
   }, req, res)
 );
 
-// Become a free MPA member. A DUPR account is required to be part of MPA.
+// Become a free MPA member. A DUPR account is the standard way in;
+// a self-rating (2.5–5.0, no DUPR account yet) is the fallback.
 // Duplicate names are rejected; an existing person record is linked, not
 // duplicated. Returns the public member (no email/phone).
 // Look a member up by DUPR ID — the join page's member check. Returns
@@ -115,7 +116,7 @@ router.get('/members/by-dupr/:duprId', (req, res) =>
     const duprId = cleanStr(req.params.duprId, 50);
     if (!duprId) throw err(400, 'A DUPR ID is required.');
     const { rows } = await pool.query(
-      `SELECT id, person_id, name, dupr_id, dupr_rating, photo_url, resides, age, country
+      `SELECT id, person_id, name, dupr_id, dupr_rating, photo_url, resides, age, country, self_rated
          FROM members WHERE lower(dupr_id) = lower($1) LIMIT 1`,
       [duprId]
     );
@@ -125,6 +126,7 @@ router.get('/members/by-dupr/:duprId', (req, res) =>
       member: {
         id: m.id, person_id: m.person_id, name: m.name, dupr_id: m.dupr_id,
         dupr_rating: m.dupr_rating == null ? null : Number(m.dupr_rating),
+        self_rated: Boolean(m.self_rated),
         photo_url: m.photo_url, resides: m.resides, age: m.age, country: m.country,
       },
     });
@@ -149,11 +151,20 @@ router.post('/members', (req, res) =>
     const handed = cleanStr(req.body.handed, 20);
     const singlesRating = cleanRating(req.body.singlesRating);
     const skinnyRating = cleanRating(req.body.skinnyRating);
+    // Self-rating fallback: no DUPR account yet, so the member rates
+    // themself from the 2.5–5.0 picker. DUPR stays the standard path.
+    const selfRated = req.body.selfRated === true;
+    const selfRating = cleanRating(req.body.selfRating);
     if (!name) throw err(400, 'Name is required.');
     if (!email || !email.includes('@')) throw err(400, 'A valid email is required.');
     if (!phone) throw err(400, 'A phone number is required.');
-    if (!duprId) throw err(400, 'A DUPR ID is required — a DUPR account is required to be part of MPA.');
-    if (duprRating == null) throw err(400, 'A DUPR doubles rating is required.');
+    const rating = selfRated ? selfRating : duprRating;
+    if (selfRated) {
+      if (rating == null || rating < 2.5 || rating > 5.0) throw err(400, 'Pick your self-rating (2.5 to 5.0).');
+    } else {
+      if (!duprId) throw err(400, 'A DUPR ID is required, or rate yourself if you do not have a DUPR account yet.');
+      if (rating == null) throw err(400, 'A DUPR doubles rating is required.');
+    }
     if (duprProfileUrl && !/^https:\/\//i.test(duprProfileUrl)) {
       throw err(400, 'The DUPR profile link must start with https://');
     }
@@ -164,8 +175,8 @@ router.post('/members', (req, res) =>
     // Link to an existing person record (e.g. a roster player) or create one.
     const person = await findOrCreatePerson(pool, {
       name,
-      duprId,
-      duprRating,
+      duprId: selfRated ? null : duprId,
+      duprRating: rating,
       duprProfileUrl,
     });
     await pool.query(
@@ -177,16 +188,17 @@ router.post('/members', (req, res) =>
     const { rows } = await pool.query(
       `INSERT INTO members (person_id, name, email, phone, dupr_id, dupr_rating,
                             dupr_profile_url, photo_url, resides, age, country,
-                            nickname, gender, height, handed, singles_rating, skinny_rating)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
-      [person.id, name, email, phone, duprId, duprRating, duprProfileUrl, photoUrl, resides, age, country,
-       nickname, gender, height, handed, singlesRating, skinnyRating]
+                            nickname, gender, height, handed, singles_rating, skinny_rating, self_rated)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
+      [person.id, name, email, phone, selfRated ? null : duprId, rating, duprProfileUrl, photoUrl, resides, age, country,
+       nickname, gender, height, handed, singlesRating, skinnyRating, selfRated]
     );
     const m = rows[0];
     res.status(201).json({
       member: {
         id: m.id, person_id: m.person_id, name: m.name, dupr_id: m.dupr_id,
         dupr_rating: Number(m.dupr_rating), dupr_profile_url: m.dupr_profile_url,
+        self_rated: Boolean(m.self_rated),
         photo_url: m.photo_url, resides: m.resides, age: m.age, country: m.country,
         nickname: m.nickname, gender: m.gender, height: m.height, handed: m.handed,
         singles_rating: m.singles_rating == null ? null : Number(m.singles_rating),
@@ -218,15 +230,24 @@ router.post('/leagues/:id/registrations', (req, res) =>
     const membershipType = req.body.membershipType === 'non-member' ? 'non-member' : 'member';
     const email = cleanStr(req.body.email);
     const phone = cleanStr(req.body.phone);
+    // Self-rating fallback: no DUPR account yet, so the player rates
+    // themself from the 2.5–5.0 picker. DUPR stays the standard path.
+    const selfRated = req.body.selfRated === true;
+    const selfRating = cleanRating(req.body.selfRating);
     if (!name) throw err(400, 'Name is required.');
-    if (!duprId) throw err(400, 'A DUPR ID is required.');
-    if (duprRating == null) throw err(400, 'A DUPR doubles rating is required.');
+    const rating = selfRated ? selfRating : duprRating;
+    if (selfRated) {
+      if (rating == null || rating < 2.5 || rating > 5.0) throw err(400, 'Pick your self-rating (2.5 to 5.0).');
+    } else {
+      if (!duprId) throw err(400, 'A DUPR ID is required, or rate yourself if you do not have a DUPR account yet.');
+      if (rating == null) throw err(400, 'A DUPR doubles rating is required.');
+    }
     if (!email || !email.includes('@')) throw err(400, 'A valid email is required.');
     if (!phone) throw err(400, 'A phone number is required.');
 
     // The league's skill band is the qualifier: a rating outside it cannot
     // join this league (the join page shows the same check up front).
-    const skillErr = skillRangeError(league.skill, duprRating);
+    const skillErr = skillRangeError(league.skill, rating, selfRated ? 'rating' : 'DUPR rating');
     if (skillErr) throw err(400, skillErr);
 
     const existing = await pool.query(
@@ -240,9 +261,9 @@ router.post('/leagues/:id/registrations', (req, res) =>
     const person = await pool.query('SELECT id FROM people WHERE lower(name) = lower($1)', [name]);
     const { rows } = await pool.query(
       `INSERT INTO registrations (person_id, name, league_id, dupr_id, dupr_rating,
-                                  membership_type, email, phone)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [person.rows[0] ? person.rows[0].id : null, name, league.id, duprId, duprRating, membershipType, email, phone]
+                                  membership_type, email, phone, self_rated)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [person.rows[0] ? person.rows[0].id : null, name, league.id, selfRated ? null : duprId, rating, membershipType, email, phone, selfRated]
     );
     res.status(201).json({ registration: rows[0] });
   }, req, res)
@@ -369,6 +390,7 @@ router.get('/people/:id/profile', (req, res) =>
       member: m ? {
         id: m.id, email: m.email, phone: m.phone, dupr_id: m.dupr_id,
         dupr_rating: m.dupr_rating == null ? null : Number(m.dupr_rating),
+        self_rated: Boolean(m.self_rated),
         dupr_profile_url: m.dupr_profile_url, photo_url: m.photo_url,
         resides: m.resides, age: m.age, country: m.country, joined_at: m.joined_at,
         nickname: m.nickname, gender: m.gender, height: m.height, handed: m.handed,
@@ -426,22 +448,28 @@ router.patch('/people/:id/profile', (req, res) =>
            resides = COALESCE($8, resides), age = COALESCE($9, age), country = COALESCE($10, country),
            nickname = COALESCE($11, nickname), gender = COALESCE($12, gender),
            height = COALESCE($13, height), handed = COALESCE($14, handed),
-           singles_rating = COALESCE($15, singles_rating), skinny_rating = COALESCE($16, skinny_rating)
+           singles_rating = COALESCE($15, singles_rating), skinny_rating = COALESCE($16, skinny_rating),
+           self_rated = CASE WHEN $4 IS NOT NULL THEN FALSE ELSE self_rated END
          WHERE person_id = $1`,
         [personId, email, phone, duprId, duprRating, duprProfileUrl, photoUrl, resides, age, country,
          nickname, gender, height, handed, singlesRating, skinnyRating]
       );
     } else {
+      // No member record yet: a DUPR ID on the save means a real DUPR
+      // rating; a rating with no DUPR ID means the member is self-rated.
+      const effDuprId = duprId || p.dupr_id;
+      const effRating = duprRating != null ? duprRating : p.dupr_rating;
       await pool.query(
         `INSERT INTO members (person_id, name, email, phone, dupr_id, dupr_rating,
                               dupr_profile_url, photo_url, resides, age, country,
-                              nickname, gender, height, handed, singles_rating, skinny_rating)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+                              nickname, gender, height, handed, singles_rating, skinny_rating, self_rated)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
         [personId, p.name, email, phone,
          duprId || p.dupr_id, duprRating != null ? duprRating : p.dupr_rating,
          duprProfileUrl || p.dupr_profile_url, photoUrl || p.photo_url,
          resides || p.resides, age != null ? age : p.age, country || p.country,
-         nickname, gender, height, handed, singlesRating, skinnyRating]
+         nickname, gender, height, handed, singlesRating, skinnyRating,
+         effDuprId ? false : effRating != null]
       );
     }
     res.json({ ok: true });
@@ -494,7 +522,8 @@ router.patch('/admin/members/:id', auth.requireAdmin, (req, res) =>
          resides = COALESCE($8, resides), age = COALESCE($9, age), country = COALESCE($10, country),
          nickname = COALESCE($11, nickname), gender = COALESCE($12, gender),
          height = COALESCE($13, height), handed = COALESCE($14, handed),
-         singles_rating = COALESCE($15, singles_rating), skinny_rating = COALESCE($16, skinny_rating)
+         singles_rating = COALESCE($15, singles_rating), skinny_rating = COALESCE($16, skinny_rating),
+         self_rated = CASE WHEN $4 IS NOT NULL THEN FALSE ELSE self_rated END
        WHERE id = $1`,
       [id, email, phone, duprId, duprRating, duprProfileUrl, photoUrl, resides, age, country,
        nickname, gender, height, handed, singlesRating, skinnyRating]
@@ -623,7 +652,7 @@ router.get('/admin/people/search', auth.requireAdmin, (req, res) =>
       });
     }
     const { rows: regs } = await pool.query(
-      `SELECT r.id, r.name, r.league_id, r.dupr_id, r.dupr_rating, r.status, l.name AS league_name
+      `SELECT r.id, r.name, r.league_id, r.dupr_id, r.dupr_rating, r.self_rated, r.status, l.name AS league_name
          FROM registrations r JOIN leagues l ON l.id = r.league_id
         WHERE lower(r.name) LIKE $1 AND r.status IN ('pending','confirmed')
         ORDER BY r.name ASC LIMIT 20`,
@@ -640,6 +669,7 @@ router.get('/admin/people/search', auth.requireAdmin, (req, res) =>
       byName.set(key, {
         person_id: null, name: r.name, dupr_id: r.dupr_id,
         dupr_rating: r.dupr_rating == null ? null : Number(r.dupr_rating),
+        self_rated: Boolean(r.self_rated),
         dupr_profile_url: null, source: 'registration',
         leagues: [], inLeague: false,
         registrationId: r.id, registrationLeague: r.league_name,
