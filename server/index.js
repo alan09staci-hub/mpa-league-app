@@ -7,6 +7,7 @@ const path = require('path');
 const { migrate } = require('./db');
 const api = require('./routes/api');
 const peopleRoutes = require('./routes/people');
+const rrRoutes = require('./routes/roundrobin');
 const auth = require('./lib/auth');
 
 const app = express();
@@ -16,6 +17,7 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/api', api);
 app.use('/api', peopleRoutes);
+app.use('/api', rrRoutes);
 
 // SPA fallback: anything that isn't an API route serves the app shell.
 app.get('*', (req, res) => {
