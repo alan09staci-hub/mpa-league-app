@@ -16,6 +16,7 @@ const {
   buildSchedule,
   computeStandings,
   computePayouts,
+  scoreError,
 } = require('../lib/roundrobin');
 
 const router = express.Router();
@@ -177,10 +178,8 @@ router.post('/round-robin/events/:id/matches/:mid/score', (req, res) =>
     if (score1 == null || score2 == null || score1 < 0 || score2 < 0 || score1 > 30 || score2 > 30) {
       return bad(res, 400, 'Scores must be whole numbers from 0 to 30.');
     }
-    if (score1 === score2) return bad(res, 400, 'Scores cannot tie.');
-    if (Math.max(score1, score2) !== match.target_score) {
-      return bad(res, 400, `One side must reach ${match.target_score} (games to ${match.target_score}).`);
-    }
+    const err = scoreError(score1, score2, match.target_score);
+    if (err) return bad(res, 400, err);
     await pool.query('UPDATE rr_matches SET score1 = $1, score2 = $2 WHERE id = $3', [score1, score2, match.id]);
     res.json({ ok: true, score1, score2 });
   }, req, res)
