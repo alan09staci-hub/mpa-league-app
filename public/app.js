@@ -2931,7 +2931,7 @@ async function renderRREvent(id) {
           return `<div class="rr-place">
             <div class="rr-medal m${p.place}">${p.place}</div>
             <div class="rr-place-info">
-              <div class="rr-place-label">${placeLabel(p.place)} PLACE${finished ? '' : ' · LEADING'}</div>
+              <div class="rr-place-label">${placeLabel(p.place)} PLACE</div>
               <div class="rr-place-team">${s ? esc(s.label) : '<span class="muted">—</span>'}</div>
               ${s ? `<div class="muted">${s.w}W–${s.l}L · E/P ${s.ep == null ? '—' : (s.ep * 100).toFixed(1) + '%'}</div>` : ''}
             </div>
@@ -2972,6 +2972,10 @@ async function renderRREvent(id) {
       // SCORE button: only on an unplayed match in the round in play —
       // the preview shows no button on a match that already has a score.
       const canScore = !finished && !scored && isCurrentRound;
+      // Edit link: Admin-only, on a scored match while the night is still
+      // playing — reopens the same score screen, so a mistyped score can
+      // be fixed without the big SCORE button coming back.
+      const canEdit = !finished && scored && isAdmin;
       return `<div class="match-card">
         <div class="teams">Match ${numOf.get(m.id)}</div>
         <p class="muted">First to ${m.target_score}, win by 1</p>
@@ -2981,6 +2985,7 @@ async function renderRREvent(id) {
         ${teamRow(byId.get(m.team2_id)?.label || '', t2Win, t1Win, m.score2)}
         ${bye ? `<div class="bye-row">${esc(byId.get(bye.teamId)?.label || '')} — BYE</div>` : ''}
         ${canScore ? `<button class="btn" data-rr-score="${m.id}">SCORE</button>` : ''}
+        ${canEdit ? `<button class="rr-edit" data-rr-score="${m.id}">Edit</button>` : ''}
       </div>`;
     };
     // Rounds stack: the round in play on top, the rounds already played

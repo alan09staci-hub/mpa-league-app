@@ -171,6 +171,7 @@ table.standings tr.you td { background: #fff8e1; }
 .rr-place-team { font-size: 20px; font-weight: 800; }
 .rr-place-amount { text-align: right; font-size: 20px; flex: none; }
 .rr-place-amount .muted { font-size: 13px; }
+.rr-edit { background: none; border: 0; padding: 4px 0; color: var(--grey); font-size: 13px; text-decoration: underline; }
 
 /* ---------- game day ---------- */
 .banner { border-radius: 10px; padding: 10px 12px; margin: 10px 0; font-size: 14px; }
