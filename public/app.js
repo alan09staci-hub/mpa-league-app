@@ -2908,10 +2908,14 @@ async function renderRREvent(id) {
   }
   const { event, teams, matches, standings, payouts, byes, isAdmin } = data;
   const byId = new Map(teams.map((t) => [t.id, t]));
+  // Matches arrive ordered by round, court — number them 1..N for the night
+  // so every card has its own number (the old "Match ${round}" label put
+  // "Match 1" on every Round 1 card).
+  const numOf = new Map(matches.map((m, i) => [m.id, i + 1]));
   const finished = event.status === 'completed';
   if (rrScoreMatchId) {
     const open = matches.find((m) => m.id === rrScoreMatchId);
-    if (open) { renderRRScoreView(id, open, byId); return; }
+    if (open) { renderRRScoreView(id, open, byId, numOf.get(open.id)); return; }
     rrScoreMatchId = null;
   }
   let html = `<h1>${esc(event.name)}</h1>
@@ -2945,13 +2949,12 @@ async function renderRREvent(id) {
   }
   if (matches.length) {
     const games = matches;
-    const current = games.find((m) => m.score1 == null);
     const done = games.filter((m) => m.score1 != null);
     const byeForRound = (round) => byes.find((b) => b.round === round);
     const cardHtml = (m, showScore) => {
       const bye = byeForRound(m.round);
       return `<div class="match-card">
-        <div class="teams">Match ${m.round}</div>
+        <div class="teams">Match ${numOf.get(m.id)}</div>
         <p class="muted">First to ${m.target_score}, win by 1</p>
         <div class="muted">Court ${m.court} · Round ${m.round}</div>
         <div class="teams">${esc(byId.get(m.team1_id)?.label || '')}</div>
@@ -2962,11 +2965,15 @@ async function renderRREvent(id) {
         ${showScore && !finished ? `<button class="btn" data-rr-score="${m.id}">SCORE</button>` : ''}
       </div>`;
     };
+    // Show the whole round in play — every court at once — so a court that
+    // finishes early can see the rest of the round and score next.
+    const upcoming = games.filter((m) => m.score1 == null);
     html += `<h2>Matches</h2>`;
-    if (!current) {
+    if (!upcoming.length) {
       html += `<div class="card"><p><strong>All matches scored</strong></p></div>`;
     } else {
-      html += cardHtml(current, true);
+      const round = Math.min(...upcoming.map((m) => m.round));
+      html += `<h3>Round ${round}</h3>` + upcoming.filter((m) => m.round === round).map((m) => cardHtml(m, true)).join('');
     }
     if (done.length) html += `<h3>Finished</h3>` + done.map((m) => cardHtml(m, true)).join('');
     if (standings.length && standings.some((s) => s.played > 0)) {
@@ -3093,13 +3100,13 @@ async function renderRREvent(id) {
 
 // Dedicated one-match score screen, mirroring the league flow: stacked
 // names, plain score boxes, white card.
-function renderRRScoreView(id, m, byId) {
+function renderRRScoreView(id, m, byId, num) {
   const t1 = esc(byId.get(m.team1_id)?.label || '');
   const t2 = esc(byId.get(m.team2_id)?.label || '');
   const scored = m.score1 != null;
   app.innerHTML = `
     <div class="match-card">
-      <h3>Match ${m.round} · Court ${m.court} · Round ${m.round}</h3>
+      <h3>Match ${num} · Court ${m.court} · Round ${m.round}</h3>
       <p class="muted">Games to ${m.target_score}</p>
       <div class="teams">${t1}</div>
       <div class="score-row">
