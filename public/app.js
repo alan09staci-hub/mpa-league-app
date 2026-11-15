@@ -104,18 +104,18 @@ function fmtClock(t) {
 // league's skill band is the qualifier. Returns an error message when the
 // rating is outside the band, else null. '50+' is an age band, not a
 // rating band, so it never gates on rating.
-function skillRangeError(skill, rating) {
+function skillRangeError(skill, rating, label = 'DUPR rating') {
   if (rating == null || Number.isNaN(Number(rating))) return null;
   const r = Number(rating);
   if (skill === '50+') return null;
   if (skill === '5.0-ABOVE') {
-    return r >= 5.0 ? null : `Your DUPR rating ${r} is below this league's skill range (5.0 and above).`;
+    return r >= 5.0 ? null : `Your ${label} ${r} is below this league's skill range (5.0 and above).`;
   }
   const m = /^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/.exec(String(skill || ''));
   if (!m) return null;
   const lo = Number(m[1]);
   const hi = Number(m[2]);
-  if (r < lo || r > hi) return `Your DUPR rating ${r} is outside this league's skill range (${skill}).`;
+  if (r < lo || r > hi) return `Your ${label} ${r} is outside this league's skill range (${skill}).`;
   return null;
 }
 function countdownTo(iso) {
@@ -415,7 +415,7 @@ async function renderFindLeague() {
     if (!rows.length) { listEl.innerHTML = '<p class="muted">No match — check the spelling, or become a member first.</p>'; return; }
     listEl.innerHTML = rows.map((p) => `<div class="person-row tappable" data-pid="${p.id}" data-name="${esc(p.name)}">
       <span class="who"><span class="nm">${esc(p.name)}</span>
-      <div class="fp">${p.dupr_id ? `DUPR ${esc(p.dupr_id)} · ${p.dupr_rating ?? ''}` : 'No DUPR on file'}</div></span></div>`).join('');
+      <div class="fp">${p.dupr_id ? `DUPR ${esc(p.dupr_id)} · ${p.dupr_rating ?? ''}` : (p.self_rated ? `Self-rated ${p.dupr_rating ?? ''}` : 'No DUPR on file')}</div></span></div>`).join('');
     listEl.querySelectorAll('.person-row').forEach((row) => {
       row.onclick = () => {
         setIdentity(+row.dataset.pid, row.dataset.name);
@@ -453,7 +453,7 @@ async function renderCover() {
     <p class="muted"><strong>${done} of 3 steps done</strong></p>
     <div class="card step ${steps.dupr ? 'done' : ''}">
       <h3>${check('dupr')}Step 1 — Get a DUPR account</h3>
-      <p class="muted small">A DUPR account is required to be part of MPA. It is free.</p>
+      <p class="muted small">A DUPR account is the standard way to join MPA. It is free — and if you don't have one yet, you can rate yourself when you join.</p>
       <div class="btnrow">
         <a class="btn small" href="${DUPR_SIGNUP_URL}" target="_blank" rel="noopener">Create a DUPR account</a>
         <button class="btn secondary small" id="haveDupr">I have a DUPR account</button>
@@ -461,7 +461,7 @@ async function renderCover() {
     </div>
     <div class="card step ${steps.member ? 'done' : ''}">
       <h3>${check('member')}Step 2 — Become a free MPA member</h3>
-      <p class="muted small">Free and unlimited. You will need your DUPR ID and doubles rating.</p>
+      <p class="muted small">Free and unlimited. You'll need your DUPR ID and doubles rating — or your self-rating if you don't have a DUPR account yet.</p>
       <div class="btnrow"><button class="btn small" id="showMemberForm">Become a Member</button></div>
       <div id="memberFormSlot"></div>
       <p class="muted small">Already a member? <button class="linkbtn" id="showFindMe">I'm already a member — find my name</button></p>
@@ -492,7 +492,7 @@ async function renderCover() {
       if (!members.length) { listEl.innerHTML = '<p class="muted">No match — check the spelling, or become a member with the form above.</p>'; return; }
       listEl.innerHTML = members.map((m) => `<div class="person-row tappable" data-pid="${m.person_id}" data-name="${esc(m.name)}">
         <span class="who"><span class="nm">${esc(m.name)}</span>
-        <div class="fp">${m.dupr_id ? `DUPR ${esc(m.dupr_id)} · ${m.dupr_rating ?? ''}` : ''}</div></span></div>`).join('');
+        <div class="fp">${m.dupr_id ? `DUPR ${esc(m.dupr_id)} · ${m.dupr_rating ?? ''}` : (m.self_rated ? `Self-rated ${m.dupr_rating ?? ''}` : '')}</div></span></div>`).join('');
       listEl.querySelectorAll('.person-row').forEach((row) => {
         row.onclick = () => {
           setIdentity(+row.dataset.pid, row.dataset.name);
@@ -578,7 +578,7 @@ function memberTileHtml(m) {
       <button class="flip-btn" data-flip="${m.id}" title="Flip card">Flip ↻</button>
       <div class="tile-back-rows">
         <div><span class="lbl">DUPR ID</span><strong>${m.dupr_id ? esc(m.dupr_id) : '—'}</strong></div>
-        <div><span class="lbl">Doubles</span><strong>${fmtRating(m.dupr_rating)}</strong></div>
+        <div><span class="lbl">Doubles${m.self_rated ? ' (self-rated)' : ''}</span><strong>${fmtRating(m.dupr_rating)}</strong></div>
         <div><span class="lbl">Singles</span><strong>${fmtRating(m.singles_rating)}</strong></div>
         <div><span class="lbl">Skinny Singles</span><strong>${fmtRating(m.skinny_rating)}</strong></div>
       </div>
@@ -594,7 +594,7 @@ function memberListRowHtml(m) {
   return `<div class="member-list-row">
     ${m.photo_url ? `<img class="photo" src="${esc(m.photo_url)}" alt="">` : `<span class="avatar big">${initial}</span>`}
     <span class="info"><span class="nm"><a href="#/members/${m.id}">${esc(first)}${last ? ` <strong>${esc(last)}</strong>` : ''}</a>${flag}</span><br>
-    <span class="sub">${m.dupr_id ? `DUPR ${esc(m.dupr_id)} · Rating ${fmtRating(m.dupr_rating)}` : 'No DUPR on file'}</span>
+    <span class="sub">${m.dupr_id ? `DUPR ${esc(m.dupr_id)} · Rating ${fmtRating(m.dupr_rating)}` : (m.self_rated ? `Self-rated ${fmtRating(m.dupr_rating)}` : 'No DUPR on file')}</span>
     ${meta ? `<br><span class="sub">${esc(meta)}</span>` : ''}
     <br><span class="sub">AMATEUR</span></span>
   </div>`;
@@ -700,6 +700,7 @@ async function renderMemberProfile(memberId) {
         ${m.photo_url ? `<img class="photo big" src="${esc(m.photo_url)}" alt="">` : `<span class="avatar huge">${initial}</span>`}
         <h1>${esc(m.name)}</h1>
         <p class="muted">Amateur | ${esc(m.country || '—')}</p>
+        ${m.self_rated ? '<p><span class="self-rated">Self-rated — no DUPR account on file yet</span></p>' : ''}
       </div>
       <div class="detail-strip">
         <div><span class="lbl">DUPR ID</span><strong>${dash(m.dupr_id)}</strong></div>
@@ -715,15 +716,19 @@ async function renderMemberProfile(memberId) {
       </div>
       <div id="profLeagueList"></div>
       <h2>Rating</h2>
-      <p class="dupr-powered">Ratings powered by <strong>DUPR</strong></p>
+      ${m.self_rated
+        ? '<p class="dupr-powered">Self-rated — this rating is the member\'s own, not a DUPR rating</p>'
+        : '<p class="dupr-powered">Ratings powered by <strong>DUPR</strong></p>'}
       <div class="rating-boxes">
-        <div class="rating-box"><span class="lbl">Doubles</span><strong>${fmtRating(m.dupr_rating)}</strong></div>
+        <div class="rating-box"><span class="lbl">Doubles${m.self_rated ? ' (self-rated)' : ''}</span><strong>${fmtRating(m.dupr_rating)}</strong></div>
         <div class="rating-box"><span class="lbl">Singles</span><strong>${fmtRating(m.singles_rating)}</strong></div>
         <div class="rating-box"><span class="lbl">Skinny Singles</span><strong>${fmtRating(m.skinny_rating)}</strong></div>
       </div>
       ${m.dupr_profile_url
         ? `<div class="btnrow"><a class="btn" href="${esc(m.dupr_profile_url)}" target="_blank" rel="noopener">View on DUPR</a></div>`
-        : `<p class="muted">DUPR ID ${esc(m.dupr_id || '—')} — the live rating and rating history live on DUPR behind its sign-in. Add a DUPR profile link to this member record to link out to it.</p>`}
+        : (m.self_rated
+          ? '<p class="muted">No DUPR account on file yet — the member can add one from My Profile, or the admin can add it from Admin → Members → Edit.</p>'
+          : `<p class="muted">DUPR ID ${esc(m.dupr_id || '—')} — the live rating and rating history live on DUPR behind its sign-in. Add a DUPR profile link to this member record to link out to it.</p>`)}
       <p class="fineprint">The ratings shown here are the ones this member entered when joining MPA. They only change when the member or admin updates them — there is no live DUPR sync.</p>
       <div class="btnrow"><a class="btn secondary" href="#/members">Back to Members</a></div>`;
     document.getElementById('profLeagues').onclick = () => {
@@ -747,9 +752,18 @@ function renderMemberForm(container, onDone) {
         <div><label>Email</label><input type="text" id="mf-email" autocomplete="email"></div>
         <div><label>Phone</label><input type="text" id="mf-phone" autocomplete="tel"></div>
       </div>
-      <div class="field-row">
-        <div><label>DUPR ID (required)</label><input type="text" id="mf-dupr"></div>
-        <div><label>DUPR doubles rating (required)</label><input type="number" step="0.001" id="mf-rating" placeholder="e.g. 3.643"></div>
+      <label class="radio"><input type="radio" name="mf-mode" value="dupr" checked> I have a DUPR account</label><br>
+      <label class="radio"><input type="radio" name="mf-mode" value="self"> I don't have one yet — I'll rate myself</label>
+      <div id="mf-dupr-fields">
+        <div class="field-row">
+          <div><label>DUPR ID (required)</label><input type="text" id="mf-dupr"></div>
+          <div><label>DUPR doubles rating (required)</label><input type="number" step="0.001" id="mf-rating" placeholder="e.g. 3.643"></div>
+        </div>
+      </div>
+      <div id="mf-self-fields" style="display:none">
+        <label>Your level</label>
+        <div class="level-pick" id="mf-levels">${[2.5, 3.0, 3.5, 4.0, 4.5, 5.0].map((lv) => `<button type="button" data-level="${lv}">${lv.toFixed(1)}</button>`).join('')}</div>
+        <p class="fineprint">Pick the level you play at. You can add your DUPR account later and we'll swap it in.</p>
       </div>
       <label>DUPR profile link (optional)</label><input type="text" id="mf-profile" placeholder="https://…">
       <div class="field-row">
@@ -772,17 +786,37 @@ function renderMemberForm(container, onDone) {
         <div><label>Singles rating (optional)</label><input type="number" step="0.001" id="mf-singles" placeholder="e.g. 3.500"></div>
         <div><label>Skinny Singles rating (optional)</label><input type="number" step="0.001" id="mf-skinny" placeholder="e.g. 3.200"></div>
       </div>
-      <p class="fineprint">A DUPR account is required to be part of MPA. <a href="${DUPR_SIGNUP_URL}" target="_blank" rel="noopener">Create one free</a>. Your email and phone are only visible to the admin, never on public pages.</p>
+      <p class="fineprint">A DUPR account is the standard way to join MPA. <a href="${DUPR_SIGNUP_URL}" target="_blank" rel="noopener">Create one free</a>. Don't have one yet? Rate yourself above — you can add your DUPR account later. Your email and phone are only visible to the admin, never on public pages.</p>
       <div class="btnrow"><button class="btn" id="mf-submit">Become a Member</button></div>
       <p class="fineprint" id="mf-err"></p>
     </div>`;
+  // Self-rating fallback: the level picker (2.5–5.0) and the DUPR / self-rate switch.
+  let mfLevel = null;
+  document.querySelectorAll('input[name="mf-mode"]').forEach((r) => {
+    r.addEventListener('change', () => {
+      const self = document.querySelector('input[name="mf-mode"]:checked').value === 'self';
+      document.getElementById('mf-dupr-fields').style.display = self ? 'none' : '';
+      document.getElementById('mf-self-fields').style.display = self ? '' : 'none';
+      document.getElementById('mf-err').textContent = '';
+    });
+  });
+  document.querySelectorAll('#mf-levels button').forEach((b) => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('#mf-levels button').forEach((x) => x.classList.remove('picked'));
+      b.classList.add('picked');
+      mfLevel = +b.dataset.level;
+    });
+  });
   document.getElementById('mf-submit').onclick = async () => {
     const err = document.getElementById('mf-err');
     try {
+      const mode = document.querySelector('input[name="mf-mode"]:checked')?.value || 'dupr';
       const duprId = document.getElementById('mf-dupr').value.trim();
       const duprRating = document.getElementById('mf-rating').value ? +document.getElementById('mf-rating').value : null;
-      if (!duprId || duprRating == null) {
-        err.textContent = 'A DUPR ID and doubles rating are required — a DUPR account is required to be part of MPA.';
+      if (mode === 'self') {
+        if (mfLevel == null) { err.textContent = 'Pick your level.'; return; }
+      } else if (!duprId || duprRating == null) {
+        err.textContent = 'A DUPR ID and doubles rating are required — or rate yourself if you do not have a DUPR account yet.';
         return;
       }
       const { member } = await api('/api/members', {
@@ -791,8 +825,10 @@ function renderMemberForm(container, onDone) {
           name: document.getElementById('mf-name').value.trim(),
           email: document.getElementById('mf-email').value.trim(),
           phone: document.getElementById('mf-phone').value.trim(),
-          duprId,
-          duprRating,
+          duprId: mode === 'self' ? null : duprId,
+          duprRating: mode === 'self' ? null : duprRating,
+          selfRated: mode === 'self',
+          selfRating: mode === 'self' ? mfLevel : null,
           duprProfileUrl: document.getElementById('mf-profile').value.trim() || null,
           resides: document.getElementById('mf-resides').value.trim() || null,
           age: document.getElementById('mf-age').value ? +document.getElementById('mf-age').value : null,
@@ -1496,7 +1532,7 @@ async function renderAdminBody(leagues, league) {
     const { registrations } = await api(`/api/admin/leagues/${league.id}/registrations`);
     regsHtml = registrations.map((r) => `
       <div class="person-row"><span class="who"><span class="nm">${esc(r.name)}</span>
-        <div class="fp">DUPR ${esc(r.dupr_id || '—')} · ${r.dupr_rating ?? ''} · ${r.membership_type === 'member' ? 'YMCA member $20' : 'Non-member $50'} · ${r.status}${r.fee_waived ? ' · <span class="fee-waived">Fee waived</span>' : ''}</div>
+        <div class="fp">${r.self_rated ? `Self-rated ${r.dupr_rating ?? ''}` : `DUPR ${esc(r.dupr_id || '—')} · ${r.dupr_rating ?? ''}`} · ${r.membership_type === 'member' ? 'YMCA member $20' : 'Non-member $50'} · ${r.status}${r.fee_waived ? ' · <span class="fee-waived">Fee waived</span>' : ''}</div>
         <div class="fp">${esc(r.email || '')}${r.email && r.phone ? ' · ' : ''}${esc(r.phone || '')}</div></span>
         <span class="rowbtns">
           ${r.status === 'pending' ? `<button class="btn small" data-reg-confirm="${r.id}">Confirm</button>` : ''}
@@ -1509,7 +1545,7 @@ async function renderAdminBody(leagues, league) {
     const { members } = await api('/api/admin/members');
     membersHtml = members.map((m) => `
       <div class="person-row" data-mid="${m.id}"><span class="who"><span class="nm">${esc(m.name)}</span>
-        <div class="fp">DUPR ${esc(m.dupr_id || '—')} · ${m.dupr_rating ?? ''}${m.leagues && m.leagues.length ? ` · Leagues: ${m.leagues.map(esc).join(', ')}` : ''}</div>
+        <div class="fp">${m.self_rated ? `Self-rated ${m.dupr_rating ?? ''}` : `DUPR ${esc(m.dupr_id || '—')} · ${m.dupr_rating ?? ''}`}${m.leagues && m.leagues.length ? ` · Leagues: ${m.leagues.map(esc).join(', ')}` : ''}</div>
         <div class="fp">${esc(m.email || '')}${m.email && m.phone ? ' · ' : ''}${esc(m.phone || '')} · joined ${fmtDateShort(m.joined_at)}</div></span>
         <span class="rowbtns">
           <button class="btn secondary small" data-mem-edit="${m.id}">Edit</button>
@@ -1862,7 +1898,7 @@ async function renderAdminBody(leagues, league) {
              data-dupr="${esc(r.dupr_id || '')}" data-rating="${r.dupr_rating ?? ''}" data-profile="${esc(r.dupr_profile_url || '')}">
           <span class="nm">${esc(r.name)}</span>
           <span class="sub">${r.inLeague ? 'Already in the league' : r.source === 'registration' ? `Signed up for ${esc(r.registrationLeague || '')}` : r.leagues && r.leagues.length ? `Also in: ${r.leagues.map(esc).join(', ')}` : 'Free member'}</span>
-          <span class="sub">${r.dupr_id ? `DUPR ${esc(r.dupr_id)} · ${r.dupr_rating ?? ''}` : ''}</span>
+          <span class="sub">${r.dupr_id ? `DUPR ${esc(r.dupr_id)} · ${r.dupr_rating ?? ''}` : (r.self_rated ? `Self-rated ${r.dupr_rating ?? ''}` : '')}</span>
         </div>`).join('') + `</div>`;
       slot.querySelectorAll('.suggest-row:not(.disabled)').forEach((row) => {
         row.onclick = () => {
@@ -2386,6 +2422,11 @@ async function renderJoinPage(leagueId) {
       ? `<div class="banner finished">You're already an MPA member — your name and DUPR are filled in below.</div>`
       : '';
     const step1Done = prefill && prefill.person && prefill.person.dupr_id;
+    // A returning self-rated player has a rating but no DUPR ID — open
+    // Step 1 in self-rate mode, with their level picked when it matches.
+    const selfPrefill = prefill && prefill.person && !prefill.person.dupr_id && prefill.person.dupr_rating != null;
+    const selfLevel0 = (selfPrefill && [2.5, 3.0, 3.5, 4.0, 4.5, 5.0].includes(Number(prefill.person.dupr_rating)))
+      ? Number(prefill.person.dupr_rating) : null;
     app.innerHTML = `
       <p><a href="#/">&larr; Back</a></p>
       <h1>Join the League</h1>
@@ -2395,10 +2436,19 @@ async function renderJoinPage(leagueId) {
       <label>League</label>
       <select id="j-league">${leagues.map((l) => `<option value="${l.id}" ${l.id === league.id ? 'selected' : ''}>${esc(l.name)} — ${esc(l.day)}s ${esc(fmtClock(l.time))}</option>`).join('')}</select>
       <div id="j-step1" class="card" style="${step1Done ? 'display:none' : ''}">
-        <h3>Step 1 — Your DUPR</h3>
-        <p class="muted small">A DUPR account is required to be part of MPA. <a href="${DUPR_SIGNUP_URL}" target="_blank" rel="noopener">Create one free</a>.</p>
-        <label>DUPR ID</label><input type="text" id="j-dupr" value="${step1Done ? esc(prefill.person.dupr_id) : ''}">
-        <label>DUPR doubles rating</label><input type="number" step="0.001" id="j-rating" value="${step1Done && prefill.person.dupr_rating != null ? prefill.person.dupr_rating : ''}" placeholder="e.g. 3.643">
+        <h3>Step 1 — Your rating</h3>
+        <p class="muted small">A DUPR account is the standard way to join MPA. <a href="${DUPR_SIGNUP_URL}" target="_blank" rel="noopener">Create one free</a>. Don't have one yet? Rate yourself — you can add your DUPR account later.</p>
+        <label class="radio"><input type="radio" name="j-mode" value="dupr" ${selfPrefill ? '' : 'checked'}> I have a DUPR account</label><br>
+        <label class="radio"><input type="radio" name="j-mode" value="self" ${selfPrefill ? 'checked' : ''}> I don't have one yet — I'll rate myself</label>
+        <div id="j-dupr-fields" style="${selfPrefill ? 'display:none' : ''}">
+          <label>DUPR ID</label><input type="text" id="j-dupr" value="${step1Done ? esc(prefill.person.dupr_id) : ''}">
+          <label>DUPR doubles rating</label><input type="number" step="0.001" id="j-rating" value="${step1Done && prefill.person.dupr_rating != null ? prefill.person.dupr_rating : ''}" placeholder="e.g. 3.643">
+        </div>
+        <div id="j-self-fields" style="${selfPrefill ? '' : 'display:none'}">
+          <label>Your level</label>
+          <div class="level-pick" id="j-levels">${[2.5, 3.0, 3.5, 4.0, 4.5, 5.0].map((lv) => `<button type="button" data-level="${lv}" class="${selfLevel0 === lv ? 'picked' : ''}">${lv.toFixed(1)}</button>`).join('')}</div>
+          <p class="fineprint">Pick the level you play at. The league's skill range still applies — a level outside it can't join.</p>
+        </div>
         <div class="btnrow"><button class="btn" id="j-to2">Continue</button></div>
         <p class="fineprint" id="j-err1"></p>
       </div>
@@ -2421,8 +2471,36 @@ async function renderJoinPage(leagueId) {
       <p class="muted small">A new season reaches existing members as a join card — signing up again never repeats the DUPR and member steps.</p>`;
     if (!detail.registrationOpen) return;
     document.getElementById('j-league').onchange = (e) => { location.hash = `#/join/${e.target.value}`; };
+    // Self-rating fallback: the level picker (2.5–5.0) and the DUPR / self-rate switch.
+    let selfLevel = selfLevel0;
+    document.querySelectorAll('input[name="j-mode"]').forEach((r) => {
+      r.addEventListener('change', () => {
+        const self = document.querySelector('input[name="j-mode"]:checked').value === 'self';
+        document.getElementById('j-dupr-fields').style.display = self ? 'none' : '';
+        document.getElementById('j-self-fields').style.display = self ? '' : 'none';
+        document.getElementById('j-err1').textContent = '';
+      });
+    });
+    document.querySelectorAll('#j-levels button').forEach((b) => {
+      b.addEventListener('click', () => {
+        document.querySelectorAll('#j-levels button').forEach((x) => x.classList.remove('picked'));
+        b.classList.add('picked');
+        selfLevel = +b.dataset.level;
+      });
+    });
     document.getElementById('j-to2')?.addEventListener('click', async () => {
       const err = document.getElementById('j-err1');
+      const mode = document.querySelector('input[name="j-mode"]:checked')?.value || 'dupr';
+      if (mode === 'self') {
+        if (selfLevel == null) { err.textContent = 'Pick your level.'; return; }
+        const skillErr = skillRangeError(league.skill, selfLevel, 'rating');
+        if (skillErr) { err.textContent = skillErr; return; }
+        const note = document.getElementById('j-member-note');
+        if (note) note.textContent = `You're joining with a self-rating of ${selfLevel.toFixed(1)} — add your DUPR account later and we'll swap it in.`;
+        document.getElementById('j-step1').style.display = 'none';
+        document.getElementById('j-step2').style.display = '';
+        return;
+      }
       const dupr = document.getElementById('j-dupr').value.trim();
       const ratingVal = document.getElementById('j-rating').value;
       if (!dupr) { err.textContent = 'Enter your DUPR ID.'; return; }
@@ -2450,10 +2528,13 @@ async function renderJoinPage(leagueId) {
     document.getElementById('j-submit').onclick = async () => {
       const err = document.getElementById('j-err2');
       const lid = +document.getElementById('j-league').value;
+      const mode = document.querySelector('input[name="j-mode"]:checked')?.value || 'dupr';
       const body = {
         name: document.getElementById('j-name').value.trim(),
-        duprId: document.getElementById('j-dupr').value.trim(),
-        duprRating: document.getElementById('j-rating').value ? +document.getElementById('j-rating').value : null,
+        duprId: mode === 'self' ? null : document.getElementById('j-dupr').value.trim(),
+        duprRating: mode === 'self' ? null : (document.getElementById('j-rating').value ? +document.getElementById('j-rating').value : null),
+        selfRated: mode === 'self',
+        selfRating: mode === 'self' ? selfLevel : null,
         email: document.getElementById('j-email').value.trim(),
         phone: document.getElementById('j-phone').value.trim(),
         membershipType: document.querySelector('input[name="j-mtype"]:checked').value,
@@ -2597,6 +2678,7 @@ async function renderProfile() {
       <h1>My Profile</h1>
       <p class="muted">Your free MPA member record. Your name cannot be changed here — the organizer fixes it from Admin.</p>
       ${!member ? '<div class="banner">You do not have a free member record yet. Saving below creates one.</div>' : ''}
+      ${member && member.self_rated ? '<div class="banner">You joined with a self-rating — add your DUPR ID and rating below to swap it in.</div>' : ''}
       <div class="card">
         <label>Full name</label><input type="text" value="${v(person.name)}" disabled>
         <div class="field-row">
