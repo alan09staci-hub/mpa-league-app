@@ -2925,7 +2925,7 @@ async function renderRREvent(id) {
     html += `<div class="card"><strong>Pot ${rrMoney(payouts.potCents)}</strong> <span class="muted">— ${teams.length * 2} players × ${rrMoney(event.fee_cents)} · ${esc(rrPayoutLabel(event.payout))}</span>
       ${payouts.places
         .map(
-          (p) => `<div>${p.place === 1 ? '1st' : p.place === 2 ? '2nd' : p.place === 3 ? '3rd' : p.place + 'th'} place — <strong>${rrMoney(p.amountCents)}</strong>${p.teamId ? ` · ${esc(byId.get(p.teamId)?.label || '')}` : ''}${p.note ? ` <span class="muted">(${esc(p.note)})</span>` : ''}</div>`
+          (p) => `<div>${p.place === 1 ? '1st' : p.place === 2 ? '2nd' : p.place === 3 ? '3rd' : p.place + 'th'} place — <strong>${rrMoney(p.amountCents)}</strong>${p.teamId ? ` · ${esc(byId.get(p.teamId)?.label || '')}${finished ? '' : ' (leading)'}` : ''}${p.note ? ` <span class="muted">(${esc(p.note)})</span>` : ''}</div>`
         )
         .join('')}
     </div>`;
@@ -2951,31 +2951,46 @@ async function renderRREvent(id) {
     const games = matches;
     const done = games.filter((m) => m.score1 != null);
     const byeForRound = (round) => byes.find((b) => b.round === round);
-    const cardHtml = (m, showScore) => {
+    const cardHtml = (m, isCurrentRound) => {
       const bye = byeForRound(m.round);
+      const scored = m.score1 != null;
+      const t1Win = scored && m.score1 > m.score2;
+      const t2Win = scored && m.score2 > m.score1;
+      const teamRow = (label, won, lost, score) =>
+        `<div class="teams${won ? ' rr-team-win' : lost ? ' rr-team-lose' : ''}">${esc(label)}${scored ? ` <span class="rr-score">${score}</span>` : ''}</div>`;
+      // SCORE button: enter a score on an unplayed match in the round in
+      // play; fix a score already entered (same as the league's finished
+      // list). Future rounds get no button at all.
+      const canScore = !finished && (scored || isCurrentRound);
       return `<div class="match-card">
         <div class="teams">Match ${numOf.get(m.id)}</div>
         <p class="muted">First to ${m.target_score}, win by 1</p>
         <div class="muted">Court ${m.court} · Round ${m.round}</div>
-        <div class="teams">${esc(byId.get(m.team1_id)?.label || '')}</div>
+        ${teamRow(byId.get(m.team1_id)?.label || '', t1Win, t2Win, m.score1)}
         <div class="vs">VS</div>
-        <div class="teams">${esc(byId.get(m.team2_id)?.label || '')}</div>
+        ${teamRow(byId.get(m.team2_id)?.label || '', t2Win, t1Win, m.score2)}
         ${bye ? `<div class="bye-row">${esc(byId.get(bye.teamId)?.label || '')} — BYE</div>` : ''}
-        ${m.score1 != null ? `<p>${m.score1} – ${m.score2}</p>` : ''}
-        ${showScore && !finished ? `<button class="btn" data-rr-score="${m.id}">SCORE</button>` : ''}
+        ${canScore ? `<button class="btn" data-rr-score="${m.id}">SCORE</button>` : ''}
       </div>`;
     };
-    // Show the whole round in play — every court at once — so a court that
-    // finishes early can see the rest of the round and score next.
+    // Rounds stack: the round in play on top, the rounds already played
+    // drop down below it in order, then the rounds still to come. Only
+    // the round in play gets SCORE buttons on its unplayed matches.
     const upcoming = games.filter((m) => m.score1 == null);
+    const rounds = [...new Set(games.map((m) => m.round))].sort((a, b) => a - b);
+    const currentRound = upcoming.length ? Math.min(...upcoming.map((m) => m.round)) : null;
+    const nextRound = currentRound == null ? null : Math.min(...rounds.filter((r) => r > currentRound), Infinity);
+    const roundStatus = (r) => {
+      if (r === currentRound) return ['playing', 'Now playing'];
+      if (games.filter((m) => m.round === r).every((m) => m.score1 != null)) return ['completed', 'Completed'];
+      return r === nextRound ? ['next', 'Up next'] : ['upcoming', 'Upcoming'];
+    };
     html += `<h2>Matches</h2>`;
-    if (!upcoming.length) {
-      html += `<div class="card"><p><strong>All matches scored</strong></p></div>`;
-    } else {
-      const round = Math.min(...upcoming.map((m) => m.round));
-      html += `<h3>Round ${round}</h3>` + upcoming.filter((m) => m.round === round).map((m) => cardHtml(m, true)).join('');
+    const orderedRounds = currentRound == null ? rounds : [currentRound, ...rounds.filter((r) => r !== currentRound)];
+    for (const r of orderedRounds) {
+      const [cls, label] = roundStatus(r);
+      html += `<h3>Round ${r} <span class="badge ${cls}">${label}</span></h3>` + games.filter((m) => m.round === r).map((m) => cardHtml(m, r === currentRound)).join('');
     }
-    if (done.length) html += `<h3>Finished</h3>` + done.map((m) => cardHtml(m, true)).join('');
     if (standings.length && standings.some((s) => s.played > 0)) {
       html += `<div class="card"><h3>Standings</h3>
         ${standings
