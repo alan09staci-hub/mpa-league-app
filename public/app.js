@@ -39,6 +39,7 @@ function clearIdentity() {
   renderIdentity();
 }
 function renderIdentity() {
+  syncAdminLink();
   const slot = document.getElementById('identitySlot');
   const id = getIdentity();
   if (!id) { slot.innerHTML = ''; return; }
@@ -69,6 +70,16 @@ function renderIdentity() {
     toast('Pick your name again to identify yourself.');
     render();
   };
+}
+
+// The Admin link in the header shows only while this device is signed in
+// as Admin — players never see it. It starts hidden in index.html, so
+// there is no flash of it on load. Sign back in via #/admin directly.
+async function syncAdminLink() {
+  const link = document.getElementById('adminLink');
+  if (!link) return;
+  const me = await api('/api/admin/me').catch(() => ({ admin: false }));
+  link.hidden = !me.admin;
 }
 
 // ---------- helpers ----------
@@ -474,7 +485,7 @@ async function renderCover() {
     </div>
     <div class="card step ${steps.joined ? 'done' : ''}">
       <h3>${check('joined')}Step 3 — Join the league</h3>
-      <p class="muted small">Pick a league and sign up. Joining costs $20 (YMCA member) / $50 (non-member), paid on ReClique.</p>
+      <p class="muted small">Pick a league and sign up.</p>
       <div id="joinPickSlot"><p class="muted">Loading leagues…</p></div>
     </div>
     ${done === 3 ? `<div class="btnrow"><button class="btn green" id="enterLeague">Enter the league →</button></div>` : ''}`;
@@ -891,7 +902,6 @@ async function renderLeague(leagueId) {
       ${fmtDateShort(league.start_date)} – ${fmtDateShort(league.stop_date)}${sessionLines ? `<br>${sessionLines}` : ''}</p>
       ${registrationOpen
         ? `<div class="card reg-open"><strong>✓ Registration Open — Join the League</strong><br>
-           <span class="muted small">Joining costs $20 (YMCA member) / $50 (non-member), paid on ReClique.</span><br>
            <div class="btnrow"><a class="btn green" href="#/join/${league.id}">Join the League</a></div></div>`
         : `<div class="card reg-closed"><strong>🔒 Registration Closed</strong><br>
            <span class="muted small">Sign-ups for this league are closed right now.</span></div>`}
@@ -1022,8 +1032,7 @@ function renderInfoTab(league, registrationOpen) {
       <p>Skill: ${esc(league.skill)} · Age: Any · Max Players Per Session: ${league.max_players} · Max Movement Rule: 0.20 · 1st Choice Group Size: 6 · 2nd Choice Group Size: 5</p>
     </div>
     <div class="card"><h2>Signup / Payment Type</h2>
-      <p>Closed League. Registration is currently <strong>${registrationOpen === false ? 'Closed' : 'Open'}</strong>. Joining costs $20 (YMCA member) / $50 (non-member), paid on ReClique.
-      <a href="${RECLIQUE_URL}" target="_blank" rel="noopener">Pay on ReClique</a></p>
+      <p>Closed League. Registration is currently <strong>${registrationOpen === false ? 'Closed' : 'Open'}</strong>.</p>
     </div>
     <div class="card"><h2>New Players Start</h2><p>At Rating — first-night seeding is by DUPR rating, highest to lowest.</p></div>
     <div class="card"><h2>Ranking Type</h2>
@@ -1387,6 +1396,7 @@ async function renderAdmin() {
       try {
         await post('/api/admin/login', { passcode });
         toast('Signed in as Admin.');
+        syncAdminLink();
         renderAdmin();
       } catch (e) {
         document.getElementById('loginErr').textContent = e.message;
@@ -1410,6 +1420,7 @@ async function renderAdmin() {
     <div id="adminBody"></div>`;
   document.getElementById('logoutBtn').onclick = async () => {
     await post('/api/admin/logout', {});
+    syncAdminLink();
     renderAdmin();
   };
   app.querySelectorAll('.league-tabs button').forEach((b) => {
@@ -1627,6 +1638,13 @@ async function renderAdminBody(leagues, league) {
     <div class="btnrow"><button class="btn" id="an-gen">Write the announcement</button></div>
     <div id="an-out"><p class="fineprint">Picks the league and writes an advertising email and a shorter text version from that league's saved record. Nothing is sent by the app — copy the drafts and send them from your own email or phone.</p></div>`;
 
+  // ---- delete a league (wipe it clean) ----
+  const deleteHtml = `
+    <label>League</label><select id="dl-league">${leagues.map((l) => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select>
+    <p class="fineprint">Deletes the league and everything in it — players, game days, matches, standings, and sign-ups. Free MPA members are NOT deleted. This cannot be undone.</p>
+    <div class="btnrow"><button class="btn secondary small" id="dl-delete">Delete league</button></div>
+    <p class="fineprint" id="dl-msg"></p>`;
+
   body.innerHTML = logoHtml +
     section('create', 'Create a league', 'Make a new league, or edit an existing one: name, type, skill, format, day, time, and season dates.', createHtml) +
     section('registration', 'Registration', 'Open or close league sign-ups.', regHtml) +
@@ -1635,7 +1653,8 @@ async function renderAdminBody(leagues, league) {
     section('players', 'Players', 'The league roster: add, edit, or remove players.', playersHtml) +
     section('penalties', 'Standings penalties', 'Miss penalties and Admin adjustments per player.', penaltiesHtml) +
     section('tools', 'Game day tools', 'Finish a game day, build the schedule, print the court sheet, and move a game day.', toolsHtml) +
-    section('announce', 'Announce this league', 'Writes the email and text announcement for a league, with copy buttons.', announceSectionHtml);
+    section('announce', 'Announce this league', 'Writes the email and text announcement for a league, with copy buttons.', announceSectionHtml) +
+    section('delete', 'Delete a league', 'Wipe a league clean: players, game days, matches, and sign-ups go with it. Members stay.', deleteHtml);
 
 
   body.querySelectorAll('.admin-section > button.head').forEach((b) => {
@@ -1645,6 +1664,25 @@ async function renderAdminBody(leagues, league) {
       renderAdminBody(leagues, league);
     };
   });
+
+  // ---- delete a league ----
+  const dlBtn = document.getElementById('dl-delete');
+  if (dlBtn) {
+    dlBtn.onclick = async () => {
+      const sel = document.getElementById('dl-league');
+      const lid = +sel.value;
+      const name = sel.selectedOptions[0]?.textContent || 'this league';
+      const msg = document.getElementById('dl-msg');
+      if (!confirm(`Delete ${name} and everything in it — players, game days, matches, standings, and sign-ups? Members are NOT deleted. This cannot be undone.`)) return;
+      try {
+        const out = await api(`/api/admin/leagues/${lid}`, { method: 'DELETE' });
+        msg.textContent = `Deleted ${out.deleted.name}.`;
+        toast(`Deleted ${out.deleted.name}.`);
+        adminLeagueId = null;
+        renderAdmin();
+      } catch (e) { msg.textContent = e.message; }
+    };
+  }
 
   // ---- logo color edit ----
   let logoColor = league ? league.logo_color : 'black-yellow';
@@ -2470,8 +2508,8 @@ async function renderJoinPage(leagueId) {
           <div><label>Phone</label><input type="text" id="j-phone" value="${prefill && prefill.member ? esc(prefill.member.phone || '') : ''}"></div>
         </div>
         <label>YMCA membership</label>
-        <label class="radio"><input type="radio" name="j-mtype" value="member" checked> YMCA member — $20</label><br>
-        <label class="radio"><input type="radio" name="j-mtype" value="non-member"> Non-member — $50</label>
+        <label class="radio"><input type="radio" name="j-mtype" value="member" checked> YMCA member</label><br>
+        <label class="radio"><input type="radio" name="j-mtype" value="non-member"> Non-member</label>
         <p class="fineprint">Fees are paid on ReClique after you sign up. Nothing is charged here.</p>
         <div class="btnrow"><button class="btn green" id="j-submit">Sign up</button></div>
         <p class="fineprint" id="j-err2"></p>
@@ -2555,9 +2593,8 @@ async function renderJoinPage(leagueId) {
         setCoverStep('joined');
         document.getElementById('j-done').innerHTML = `
           <div class="banner finished">✓ You're signed up for ${esc(leagues.find((l) => l.id === lid).name)}.
-          The organizer will add you to the league. Your fee is ${registration.membership_type === 'member' ? '$20 (YMCA member)' : '$50 (non-member)'}.</div>
-          <div class="btnrow"><a class="btn" href="${RECLIQUE_URL}" target="_blank" rel="noopener">Pay on ReClique</a>
-          <a class="btn secondary" href="#/league/${lid}">View the league</a></div>`;
+          The organizer will add you to the league.</div>
+          <div class="btnrow"><a class="btn secondary" href="#/league/${lid}">View the league</a></div>`;
         document.getElementById('j-step2').style.display = 'none';
       } catch (e) { err.textContent = e.message; }
     };
