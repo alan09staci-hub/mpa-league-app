@@ -399,16 +399,75 @@ async function renderLanding(id, mine) {
       <div class="btnrow"><a class="btn secondary" href="#/members">Members</a><a class="btn secondary" href="#/myleagues">My Leagues</a></div>
       ${leagues.length === 0 ? `<div class="card"><h2>A glimpse of what's coming</h2>
         <p class="muted small">Leagues are in the works at the YMCA — here's what the app looks like once play starts. Steps 6–8 are samples from the completed test season, not live pages.</p>
-        <ol>
-          <li><strong>You're a member</strong> — welcome to MPA. No fee until the YMCA approves the payment option.</li>
+        <div class="gl-phone">
+          <div class="gl-phone-top"><span>MPA</span><span class="gl-pill">MEMBER</span></div>
+          <div class="gl-check">✓</div>
+          <h3>You're a member!</h3>
+          <p>You're now a <strong>free MPA member</strong>. MPA ladder leagues are <strong>in the works</strong> at the YMCA in Moultrie, GA — join now and pick the league for your skill when play starts.</p>
+          <div class="gl-works"><strong>Leagues in the works</strong><br>No league to join yet and nothing to pay until the YMCA gives final approval. We'll let you know when a league opens.</div>
+          <p class="muted small">Step 1 was DUPR or self-rate 2.5–5.0 • Step 2 was name / email / phone<br>If you can't open DUPR, you can rate yourself instead when you join.</p>
+        </div>
+        <ol start="2">
           <li><strong>No leagues open yet</strong> — nothing to join until the YMCA approves.</li>
           <li><strong>Your league home</strong> — your leagues, standings, and next game day, once you're in one.</li>
           <li><strong>Find your league</strong> — tap your name to see the leagues you're part of.</li>
           <li><strong>No game day yet</strong> — game days appear once a league starts.</li>
-          <li><strong>Matches</strong> <span class="badge completed">SAMPLE</span> — your matches, one at a time, each with its own SCORE button.</li>
-          <li><strong>Enter score</strong> <span class="badge completed">SAMPLE</span> — games to 15, plain score boxes, white screen.</li>
-          <li><strong>Members &amp; Dashboard</strong> <span class="badge completed">SAMPLE</span> — the directory, your profile, and your results across your leagues.</li>
-        </ol></div>` : ''}`;
+        </ol>
+        <div class="gl-sample">
+          <div class="gl-sample-head">SAMPLE — <span>WHAT A LEAGUE WILL LOOK LIKE</span> • NOT LIVE</div>
+          <div class="gl-sample-title"><span class="gl-num">6</span><div><div class="gl-kicker">SAMPLE • EXAMPLE FROM THE COMPLETED TEST SEASON</div><h3>Matches — one at a time</h3><p class="muted small">Sample only — no live match today. This is what they'll see on game night once a league is running.</p></div></div>
+          <div class="gl-phone">
+            <div class="gl-phone-top"><span>MATCHES</span><span class="gl-pill">COURT 1</span></div>
+            <div class="gl-pills"><span class="gl-pill dark">SAMPLE</span><span class="gl-pill green">● NOW PLAYING</span></div>
+            <div class="gl-match">
+              <strong>First to 15, win by 1</strong><br><span class="muted small">Court 1 • Round 1</span>
+              <div class="gl-team">Alan &amp; Stew</div>
+              <div class="gl-vs">VS</div>
+              <div class="gl-team">Justin &amp; Zell</div>
+              <div class="gl-score-btn">SCORE</div>
+            </div>
+            <h4>Finished</h4>
+            <div class="rr-team-win"><span>Laura &amp; Bryan</span><span class="rr-score">15</span></div>
+            <div class="rr-team-lose"><span>Kim &amp; Justin</span><span class="rr-score">9</span></div>
+            <p class="muted small">Before the night starts this tab reads: “Matches will show once the game day starts.”</p>
+          </div>
+          <ul class="gl-notes">
+            <li><strong>Sample:</strong> names and scores are from the completed test season — shown so a new member can see how a league night works</li>
+            <li>When a league is live, a player sees <strong>only their own court's games</strong> (including BYEs), and only the match now playing gets a SCORE button</li>
+          </ul>
+        </div>
+        <div class="gl-sample">
+          <div class="gl-sample-head">SAMPLE — <span>WHAT A LEAGUE WILL LOOK LIKE</span> • NOT LIVE</div>
+          <div class="gl-sample-title"><span class="gl-num">7</span><div><div class="gl-kicker">SAMPLE • EXAMPLE FROM THE COMPLETED TEST SEASON</div><h3>Enter score</h3><p class="muted small">Sample only — type the score, tap Save, and the next match comes up.</p></div></div>
+          <div class="gl-phone">
+            <div class="gl-phone-top"><span>GAMES TO 15</span></div>
+            <div class="gl-team">Alan &amp; Stew</div>
+            <div class="gl-score-box">15</div>
+            <div class="gl-vs">VS</div>
+            <div class="gl-team">Justin &amp; Zell</div>
+            <div class="gl-score-box">9</div>
+            <div class="gl-score-btn">SAVE</div>
+          </div>
+          <ul class="gl-notes">
+            <li><strong>Sample:</strong> plain boxes — no spinners, no “to 15” labels. First to 15, win by 1.</li>
+          </ul>
+        </div>
+        <div class="gl-sample">
+          <div class="gl-sample-head">SAMPLE — <span>WHAT A LEAGUE WILL LOOK LIKE</span> • NOT LIVE</div>
+          <div class="gl-sample-title"><span class="gl-num">8</span><div><div class="gl-kicker">SAMPLE • EXAMPLE FROM THE COMPLETED TEST SEASON</div><h3>Members &amp; Dashboard</h3><p class="muted small">Sample only — the directory, your profile, and your results across your leagues.</p></div></div>
+          <div class="gl-phone">
+            <div class="gl-phone-top"><span>MEMBERS</span></div>
+            <div class="gl-tiles">
+              <div class="gl-tile"><span class="gl-avatar">A</span><strong>Alan Cortez</strong><br><span class="muted small">DUPR 3.608 • AMATEUR</span></div>
+              <div class="gl-tile"><span class="gl-avatar">D</span><strong>Dawn Smith</strong><br><span class="muted small">AMATEUR</span></div>
+            </div>
+            <div class="gl-dash"><strong>My Dashboard</strong><br><span class="muted small">Your rank, your record, and every game you played — partner, opponents, score, result — per league.</span></div>
+          </div>
+          <ul class="gl-notes">
+            <li><strong>Sample:</strong> email and phone are never shown here — only the admin sees them.</li>
+          </ul>
+        </div>
+      </div>` : ''}`;
     bindFavButtons();
   } catch (e) {
     app.innerHTML = `<div class="banner warn">${esc(e.message)}</div>`;
