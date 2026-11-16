@@ -71,14 +71,14 @@ function renderIdentity() {
   };
 }
 
-// The Admin link in the header is always visible — it is the way back
-// to the Admin sign-in. Tapping it opens #/admin: the passcode form when
-// signed out, the Admin page when signed in. The passcode is the lock;
-// the link itself grants nothing.
+// The Admin link in the header shows only while this device is signed in
+// as Admin — players never see it. The sign-in link lives in the footer
+// instead, so it is always findable without sitting in the header.
 async function syncAdminLink() {
   const link = document.getElementById('adminLink');
   if (!link) return;
-  link.hidden = false;
+  const me = await api('/api/admin/me').catch(() => ({ admin: false }));
+  link.hidden = !me.admin;
 }
 
 // ---------- helpers ----------

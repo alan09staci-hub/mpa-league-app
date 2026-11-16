@@ -397,3 +397,5 @@ button.stat { cursor: pointer; font: inherit; }
 .gl-tile { border: 1px solid var(--line); border-radius: 12px; padding: 12px; text-align: center; }
 .gl-avatar { width: 52px; height: 52px; border-radius: 50%; background: var(--yellow); color: var(--black); font-size: 24px; font-weight: 800; display: flex; align-items: center; justify-content: center; margin: 0 auto 8px; }
 .gl-dash { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 12px; }
+.site-footer { text-align: center; padding: 20px 12px 28px; font-size: 13px; }
+.site-footer a { color: var(--grey); text-decoration: none; }
