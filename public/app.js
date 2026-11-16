@@ -398,24 +398,25 @@ async function renderLanding(id, mine) {
         </div>`).join('')}` : ''}
       <div class="btnrow"><a class="btn secondary" href="#/members">Members</a><a class="btn secondary" href="#/myleagues">My Leagues</a></div>
       ${leagues.length === 0 ? `<div class="card"><h2>A glimpse of what's coming</h2>
-        <p class="muted small">Leagues are in the works at the YMCA — here's what the app looks like once play starts. Steps 6–8 are samples from the completed test season, not live pages.</p>
+        <p class="muted small">Here's what the app looks like once play starts. The samples below are from the completed test season, not live pages.</p>
         <div class="gl-phone">
           <div class="gl-phone-top"><span>MPA</span><span class="gl-pill">MEMBER</span></div>
           <div class="gl-check">✓</div>
           <h3>You're a member!</h3>
           <p>You're now a <strong>free MPA member</strong>. MPA ladder leagues are <strong>in the works</strong> at the YMCA in Moultrie, GA — join now and pick the league for your skill when play starts.</p>
-          <div class="gl-works"><strong>Leagues in the works</strong><br>No league to join yet and nothing to pay until the YMCA gives final approval. We'll let you know when a league opens.</div>
+          <div class="gl-works"><strong>Leagues in the works</strong><br>No league to join yet. We'll let you know when a league opens.</div>
           <p class="muted small">Step 1 was DUPR or self-rate 2.5–5.0 • Step 2 was name / email / phone<br>If you can't open DUPR, you can rate yourself instead when you join.</p>
         </div>
-        <ol start="2">
-          <li><strong>No leagues open yet</strong> — nothing to join until the YMCA approves.</li>
+        <ul>
+          <li><strong>No leagues open yet</strong> — nothing to join right now.</li>
           <li><strong>Your league home</strong> — your leagues, standings, and next game day, once you're in one.</li>
           <li><strong>Find your league</strong> — tap your name to see the leagues you're part of.</li>
           <li><strong>No game day yet</strong> — game days appear once a league starts.</li>
-        </ol>
+        </ul>
+        <div class="gl-how"><strong>How scoring works</strong><br>Every player plays for <strong>60 points</strong> a night. How a court gets there depends on how many players are on it:<br>• <strong>4 players</strong> — 3 games to 20<br>• <strong>5 players</strong> — 5 games to 15, with 1 player sitting out (BYE) each game<br>• <strong>6 players</strong> — 9 games to 10, with 2 sitting out each game<br>First to the target, win by 1. Your standing is your points <strong>earned</strong> divided by your points <strong>possible</strong>.</div>
         <div class="gl-sample">
           <div class="gl-sample-head">SAMPLE — <span>WHAT A LEAGUE WILL LOOK LIKE</span> • NOT LIVE</div>
-          <div class="gl-sample-title"><span class="gl-num">6</span><div><div class="gl-kicker">SAMPLE • EXAMPLE FROM THE COMPLETED TEST SEASON</div><h3>Matches — one at a time</h3><p class="muted small">Sample only — no live match today. This is what they'll see on game night once a league is running.</p></div></div>
+          <div class="gl-sample-title"><div><div class="gl-kicker">SAMPLE • EXAMPLE FROM THE COMPLETED TEST SEASON</div><h3>Matches — one at a time</h3><p class="muted small">Sample only — no live match today. This is what they'll see on game night once a league is running.</p></div></div>
           <div class="gl-phone">
             <div class="gl-phone-top"><span>MATCHES</span><span class="gl-pill">COURT 1</span></div>
             <div class="gl-pills"><span class="gl-pill dark">SAMPLE</span><span class="gl-pill green">● NOW PLAYING</span></div>
@@ -438,7 +439,7 @@ async function renderLanding(id, mine) {
         </div>
         <div class="gl-sample">
           <div class="gl-sample-head">SAMPLE — <span>WHAT A LEAGUE WILL LOOK LIKE</span> • NOT LIVE</div>
-          <div class="gl-sample-title"><span class="gl-num">7</span><div><div class="gl-kicker">SAMPLE • EXAMPLE FROM THE COMPLETED TEST SEASON</div><h3>Enter score</h3><p class="muted small">Sample only — type the score, tap Save, and the next match comes up.</p></div></div>
+          <div class="gl-sample-title"><div><div class="gl-kicker">SAMPLE • EXAMPLE FROM THE COMPLETED TEST SEASON</div><h3>Enter score</h3><p class="muted small">Sample only — type the score, tap Save, and the next match comes up.</p></div></div>
           <div class="gl-phone">
             <div class="gl-phone-top"><span>GAMES TO 15</span></div>
             <div class="gl-team">Alan &amp; Stew</div>
@@ -454,7 +455,7 @@ async function renderLanding(id, mine) {
         </div>
         <div class="gl-sample">
           <div class="gl-sample-head">SAMPLE — <span>WHAT A LEAGUE WILL LOOK LIKE</span> • NOT LIVE</div>
-          <div class="gl-sample-title"><span class="gl-num">8</span><div><div class="gl-kicker">SAMPLE • EXAMPLE FROM THE COMPLETED TEST SEASON</div><h3>Members &amp; Dashboard</h3><p class="muted small">Sample only — the directory, your profile, and your results across your leagues.</p></div></div>
+          <div class="gl-sample-title"><div><div class="gl-kicker">SAMPLE • EXAMPLE FROM THE COMPLETED TEST SEASON</div><h3>Members &amp; Dashboard</h3><p class="muted small">Sample only — the directory, your profile, and your results across your leagues.</p></div></div>
           <div class="gl-phone">
             <div class="gl-phone-top"><span>MEMBERS</span></div>
             <div class="gl-tiles">
