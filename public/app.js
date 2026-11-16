@@ -2262,11 +2262,13 @@ function announceJoinHtml({ members, memberCount, withEmail, withPhone }) {
   const emailText = [
     `Join the Moultrie Pickleball Association — membership is free.`,
     ``,
-    `MPA runs ladder leagues at the YMCA in Moultrie, GA — Coed Doubles, Women's Doubles, and more, for every skill level. Pick the league for your skill and play every week.`,
+    `MPA ladder leagues are in the works at the YMCA in Moultrie, GA — Coed Doubles, Women's Doubles, and more, for every skill level. Join now and pick the league for your skill when play starts.`,
     ``,
     `Two steps to join:`,
     `1. Get a free DUPR account: ${DUPR_SIGNUP_URL}`,
     `2. Become a free MPA member`,
+    ``,
+    `If you can't open DUPR, you can rate yourself instead when you join.`,
     ``,
     `Join here: ${APP_URL}/`,
     ``,
@@ -2277,8 +2279,9 @@ function announceJoinHtml({ members, memberCount, withEmail, withPhone }) {
   ].join('\n');
   const emailBodyHtml = [
     `<p><strong>Join the Moultrie Pickleball Association — membership is free.</strong></p>`,
-    `<p>MPA runs ladder leagues at the YMCA in Moultrie, GA — Coed Doubles, Women's Doubles, and more, for every skill level. Pick the league for your skill and play every week.</p>`,
+    `<p>MPA ladder leagues are in the works at the YMCA in Moultrie, GA — Coed Doubles, Women's Doubles, and more, for every skill level. Join now and pick the league for your skill when play starts.</p>`,
     `<p><strong>Two steps to join:</strong><br>1. Get a free DUPR account: <a href="${DUPR_SIGNUP_URL}">${DUPR_SIGNUP_URL}</a><br>2. Become a free MPA member</p>`,
+    `<p>If you can't open DUPR, you can rate yourself instead when you join.</p>`,
     `<p>Join here: <a href="${APP_URL}/">${APP_URL}/</a></p>`,
     `<p><em>Tip: if the DUPR link won't open from your email or text, copy it and paste it into Safari.</em></p>`,
     `<p>Moultrie Pickleball Association</p>`,
@@ -2287,6 +2290,7 @@ function announceJoinHtml({ members, memberCount, withEmail, withPhone }) {
     `Join the Moultrie Pickleball Association — it's free.`,
     `1. Get a free DUPR account: ${DUPR_SIGNUP_URL}`,
     `2. Become a free MPA member`,
+    `If you can't open DUPR, you can rate yourself instead when you join.`,
     `Join here: ${APP_URL}/`,
     `Tip: if the DUPR link won't open from your email or text, copy it and paste it into Safari.`,
     `— Moultrie Pickleball Association`,
