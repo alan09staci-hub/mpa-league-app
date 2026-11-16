@@ -51,7 +51,6 @@ function renderIdentity() {
       <a href="#/dashboard">My Dashboard</a>
       <a href="#/profile">My Profile</a>
       <a href="#/myleagues">My Leagues</a>
-      <a href="#/roundrobin">Round Robin</a>
       <button id="acctSwitch">Switch identity</button>
     </div>
   </div>`;
@@ -398,7 +397,19 @@ async function renderLanding(id, mine) {
           <span class="muted small">${esc(l.type)} · ${esc(l.skill)} · ${esc(l.format)} · ${esc(l.day)}s ${esc(fmtClock(l.time))} · ${esc(l.season || 'Season not set')}</span>
           <div class="btnrow"><a class="btn green small" href="#/join/${l.id}">Join this league</a></div>
         </div>`).join('')}` : ''}
-      <div class="btnrow"><a class="btn secondary" href="#/members">Members</a><a class="btn secondary" href="#/myleagues">My Leagues</a><a class="btn secondary" href="#/roundrobin">Round Robin</a></div>`;
+      <div class="btnrow"><a class="btn secondary" href="#/members">Members</a><a class="btn secondary" href="#/myleagues">My Leagues</a></div>
+      ${leagues.length === 0 ? `<div class="card"><h2>A glimpse of what's coming</h2>
+        <p class="muted small">Leagues are in the works at the YMCA — here's what the app looks like once play starts. Steps 6–8 are samples from the completed test season, not live pages.</p>
+        <ol>
+          <li><strong>You're a member</strong> — welcome to MPA. No fee until the YMCA approves the payment option.</li>
+          <li><strong>No leagues open yet</strong> — nothing to join until the YMCA approves.</li>
+          <li><strong>Your league home</strong> — your leagues, standings, and next game day, once you're in one.</li>
+          <li><strong>Find your league</strong> — tap your name to see the leagues you're part of.</li>
+          <li><strong>No game day yet</strong> — game days appear once a league starts.</li>
+          <li><strong>Matches</strong> <span class="badge completed">SAMPLE</span> — your matches, one at a time, each with its own SCORE button.</li>
+          <li><strong>Enter score</strong> <span class="badge completed">SAMPLE</span> — games to 15, plain score boxes, white screen.</li>
+          <li><strong>Members &amp; Dashboard</strong> <span class="badge completed">SAMPLE</span> — the directory, your profile, and your results across your leagues.</li>
+        </ol></div>` : ''}`;
     bindFavButtons();
   } catch (e) {
     app.innerHTML = `<div class="banner warn">${esc(e.message)}</div>`;
@@ -1413,7 +1424,7 @@ async function renderAdmin() {
   const league = leagues.find((l) => l.id === adminLeagueId);
   app.innerHTML = `
     <h1>Admin</h1><p class="muted">ADMIN ONLY</p>
-    <div class="btnrow"><button class="btn secondary small" id="logoutBtn">Sign out</button></div>
+    <div class="btnrow"><button class="btn secondary small" id="logoutBtn">Sign out</button><a class="btn secondary small" href="#/roundrobin">Round Robin</a></div>
     <div class="league-tabs">
       ${leagues.map((l) => `<button data-lid="${l.id}" class="${l.id === adminLeagueId ? 'active' : ''}">${esc(l.name)}</button>`).join('')}
     </div>
