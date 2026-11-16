@@ -2921,9 +2921,9 @@ async function renderRREvent(id) {
   let html = `<h1>${esc(event.name)}</h1>
     <p class="muted">${esc(fmtDateShort(event.event_date))} · ${rrKindLabel(event.kind)} · ${rrStatusLabel(event.status)}</p>`;
   if (finished) html += `<div class="banner finished">Night finished — final standings and payouts below.</div>`;
+  const placeLabel = (n) => ['1ST', '2ND', '3RD'][n - 1] || `${n}TH`;
   if (event.kind === 'money' && payouts) {
     const standingByTeam = new Map(standings.map((s) => [s.teamId, s]));
-    const placeLabel = (n) => ['1ST', '2ND', '3RD'][n - 1] || `${n}TH`;
     html += `<div class="card"><strong>Pot ${rrMoney(payouts.potCents)}</strong> <span class="muted">— ${teams.length * 2} players × ${rrMoney(event.fee_cents)} · ${esc(rrPayoutLabel(event.payout))}</span>
       ${payouts.places
         .map((p) => {
@@ -2938,6 +2938,23 @@ async function renderRREvent(id) {
             <div class="rr-place-amount"><strong>${rrMoney(p.amountCents)}</strong>${p.note ? `<div class="muted">${esc(p.note)}</div>` : ''}</div>
           </div>`;
         })
+        .join('')}
+    </div>`;
+  }
+  // Free play: same medal winners view as money ball, without the money —
+  // top 3 teams that have played, "Leaders" while playing, "Winners" once
+  // the night is finished. The full standings list below is unchanged.
+  if (event.kind !== 'money' && standings.some((s) => s.played > 0)) {
+    html += `<div class="card"><strong>${finished ? 'Winners' : 'Leaders'}</strong>
+      ${standings.filter((s) => s.played > 0).slice(0, 3)
+        .map((s) => `<div class="rr-place">
+          <div class="rr-medal m${s.rank}">${s.rank}</div>
+          <div class="rr-place-info">
+            <div class="rr-place-label">${placeLabel(s.rank)} PLACE</div>
+            <div class="rr-place-team">${esc(s.label)}</div>
+            <div class="muted">${s.w}W–${s.l}L · E/P ${s.ep == null ? '—' : (s.ep * 100).toFixed(1) + '%'}</div>
+          </div>
+        </div>`)
         .join('')}
     </div>`;
   }
