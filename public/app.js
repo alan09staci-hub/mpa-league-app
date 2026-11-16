@@ -1871,8 +1871,6 @@ async function renderAdminBody(leagues, league) {
     };
   }
 
-  if (!league) return;
-
   // ---- registration switch ----
   const rgBtn = document.getElementById('rg-toggle');
   if (rgBtn) {
