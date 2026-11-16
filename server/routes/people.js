@@ -826,6 +826,42 @@ router.patch('/admin/leagues/:id', auth.requireAdmin, (req, res) =>
   }, req, res)
 );
 
+// Delete a league and everything that belongs to it (Admin). Sessions,
+// matches, rank snapshots, roster spots, and registrations are removed by
+// ON DELETE CASCADE; people and free-member records are untouched.
+router.delete('/admin/leagues/:id', auth.requireAdmin, (req, res) =>
+  handle(async () => {
+    const league = await getLeague(pool, req.params.id);
+    if (!league) throw err(404, 'League not found.');
+    const counts = {};
+    for (const [key, sql] of [
+      ['players', 'SELECT COUNT(*)::int AS n FROM player_leagues WHERE league_id = $1'],
+      ['sessions', 'SELECT COUNT(*)::int AS n FROM sessions WHERE league_id = $1'],
+      ['registrations', 'SELECT COUNT(*)::int AS n FROM registrations WHERE league_id = $1'],
+    ]) {
+      const { rows } = await pool.query(sql, [league.id]);
+      counts[key] = rows[0].n;
+    }
+    const { rows: m } = await pool.query(
+      'SELECT COUNT(*)::int AS n FROM matches WHERE session_id IN (SELECT id FROM sessions WHERE league_id = $1)',
+      [league.id]
+    );
+    counts.matches = m[0].n;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM leagues WHERE id = $1', [league.id]);
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+    res.json({ ok: true, deleted: { id: league.id, name: league.name, ...counts } });
+  }, req, res)
+);
+
 // Rename a person everywhere at once (Admin). Updates the person record,
 // the linked member record, and every registration for that person in one
 // transaction, so the roster and the member directory can never disagree.
