@@ -301,8 +301,7 @@ async function renderRoot() {
     // their real records, then route by league membership.
     await syncCoverSteps(id.personId);
     const mine = await myLeagues(id.personId).catch(() => []);
-    if (mine.length) return renderLanding(id, mine);
-    return renderMembersPage(); // member, but in no league yet
+    return renderLanding(id, mine); // the landing is the front page for every member — with no league it shows "not in a league yet" plus the glimpse
   }
   const me = await api('/api/admin/me').catch(() => ({ admin: false }));
   if (me.admin) return renderHome(); // Admin sees all leagues
