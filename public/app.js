@@ -344,10 +344,19 @@ async function renderHome() {
   }
 }
 
+function logoSrcFor(color) {
+  if (color === 'pink') return '/mpa-logo-pink.webp';
+  if (color === 'blue') return '/mpa-logo-blue.webp';
+  if (color === 'green') return '/mpa-logo-green.webp';
+  if (color === 'red') return '/mpa-logo-red.webp';
+  if (color === 'dark-gray') return '/mpa-logo-dark-gray.webp';
+  return '/mpa-logo.webp';
+}
+
 function leagueCardHtml(l) {
   return `
       <div class="card league-card">
-        <span class="mark ${esc(l.logo_color)}"><img src="/mpa-logo.webp" alt="MPA"></span>
+        <span class="mark ${esc(l.logo_color)}"><img src="${logoSrcFor(l.logo_color)}" alt="MPA"></span>
         <span class="info">
           <span class="name">${esc(l.name)}</span><br>
           <span class="sub">${esc(l.type)} · ${esc(l.skill)} · ${esc(l.format)}<br>
@@ -1522,6 +1531,8 @@ async function renderAdminBody(leagues, league) {
         <button data-c="pink" class="${league.logo_color === 'pink' ? 'sel' : ''}" style="background:#f7c6dd" title="Pink"></button>
         <button data-c="blue" class="${league.logo_color === 'blue' ? 'sel' : ''}" style="background:#bcd6f7" title="Blue"></button>
         <button data-c="green" class="${league.logo_color === 'green' ? 'sel' : ''}" style="background:#bfe3c0" title="Green"></button>
+        <button data-c="red" class="${league.logo_color === 'red' ? 'sel' : ''}" style="background:#f6c1c1" title="Red"></button>
+        <button data-c="dark-gray" class="${league.logo_color === 'dark-gray' ? 'sel' : ''}" style="background:#b9bec4" title="Dark gray"></button>
       </div>
       <span class="fineprint" id="lg-msg"></span></div>`;
   }
@@ -1546,6 +1557,8 @@ async function renderAdminBody(leagues, league) {
         <button data-c="pink" style="background:#f7c6dd" title="Pink"></button>
         <button data-c="blue" style="background:#bcd6f7" title="Blue"></button>
         <button data-c="green" style="background:#bfe3c0" title="Green"></button>
+        <button data-c="red" style="background:#f6c1c1" title="Red"></button>
+        <button data-c="dark-gray" style="background:#b9bec4" title="Dark gray"></button>
       </div></div>
     </div>
     <div class="field-row">
