@@ -344,6 +344,16 @@ async function renderHome() {
   }
 }
 
+function colorForLeague(l) {
+  if (!l) return 'black-yellow';
+  if (l.skill === '50+') return 'red';
+  if (l.type === 'Advanced') return 'blue';
+  if (l.type === 'Intermediate/Advanced') return 'green';
+  if (l.type === "Women's") return 'pink';
+  if (l.type === 'Elite') return 'dark-gray';
+  return 'black-yellow';
+}
+
 function logoSrcFor(color) {
   if (color === 'pink') return '/mpa-logo-pink.webp';
   if (color === 'blue') return '/mpa-logo-blue.webp';
@@ -356,7 +366,7 @@ function logoSrcFor(color) {
 function leagueCardHtml(l) {
   return `
       <div class="card league-card">
-        <span class="mark ${esc(l.logo_color)}"><img src="${logoSrcFor(l.logo_color)}" alt="MPA"></span>
+        <span class="mark ${esc(colorForLeague(l))}"><img src="${logoSrcFor(colorForLeague(l))}" alt="MPA"></span>
         <span class="info">
           <span class="name">${esc(l.name)}</span><br>
           <span class="sub">${esc(l.type)} · ${esc(l.skill)} · ${esc(l.format)}<br>
@@ -1522,19 +1532,10 @@ function section(key, title, desc, innerHtml) {
 async function renderAdminBody(leagues, league) {
   const body = document.getElementById('adminBody');
 
-  // ---- logo color for the current league ----
+  // ---- logo color for the current league (follows the league, no picker) ----
   let logoHtml = '';
   if (league) {
-    logoHtml = `<div class="card"><strong>Logo color for ${esc(league.name)}:</strong>
-      <div class="swatches" id="lg-swatches">
-        <button data-c="black-yellow" class="${league.logo_color === 'black-yellow' ? 'sel' : ''}" style="background:#141414" title="Black & yellow"></button>
-        <button data-c="pink" class="${league.logo_color === 'pink' ? 'sel' : ''}" style="background:#f7c6dd" title="Pink"></button>
-        <button data-c="blue" class="${league.logo_color === 'blue' ? 'sel' : ''}" style="background:#bcd6f7" title="Blue"></button>
-        <button data-c="green" class="${league.logo_color === 'green' ? 'sel' : ''}" style="background:#bfe3c0" title="Green"></button>
-        <button data-c="red" class="${league.logo_color === 'red' ? 'sel' : ''}" style="background:#f6c1c1" title="Red"></button>
-        <button data-c="dark-gray" class="${league.logo_color === 'dark-gray' ? 'sel' : ''}" style="background:#b9bec4" title="Dark gray"></button>
-      </div>
-      <span class="fineprint" id="lg-msg"></span></div>`;
+    logoHtml = `<div class="card"><strong>Logo color for ${esc(league.name)}:</strong> ${esc(colorForLeague(league))} — the logo color follows the league: Advanced blue, Intermediate/Advanced green, Women's pink, Elite dark gray, 50+ red, anything else black and yellow.</div>`;
   }
 
   // ---- create a league (with per-week date editing) ----
@@ -1552,14 +1553,7 @@ async function renderAdminBody(leagues, league) {
       <div><label>Format</label><select id="cl-format">
         <option selected>Coed Doubles</option><option>Women's Doubles</option><option>Men's Doubles</option>
       </select></div>
-      <div><label>Logo color</label><div class="swatches" id="cl-swatches">
-        <button data-c="black-yellow" class="sel" style="background:#141414" title="Black & yellow"></button>
-        <button data-c="pink" style="background:#f7c6dd" title="Pink"></button>
-        <button data-c="blue" style="background:#bcd6f7" title="Blue"></button>
-        <button data-c="green" style="background:#bfe3c0" title="Green"></button>
-        <button data-c="red" style="background:#f6c1c1" title="Red"></button>
-        <button data-c="dark-gray" style="background:#b9bec4" title="Dark gray"></button>
-      </div></div>
+      <div><label>Logo color</label><p class="fineprint">Set by the league — Advanced blue, Intermediate/Advanced green, Women's pink, Elite dark gray, 50+ red, anything else black and yellow.</p></div>
     </div>
     <div class="field-row">
       <div><label>Day</label><select id="cl-day">
@@ -1767,27 +1761,7 @@ async function renderAdminBody(leagues, league) {
     };
   }
 
-  // ---- logo color edit ----
-  let logoColor = league ? league.logo_color : 'black-yellow';
-  body.querySelectorAll('#lg-swatches button').forEach((b) => {
-    b.onclick = async () => {
-      logoColor = b.dataset.c;
-      body.querySelectorAll('#lg-swatches button').forEach((x) => x.classList.toggle('sel', x === b));
-      try {
-        await api(`/api/admin/leagues/${league.id}`, { method: 'PATCH', body: JSON.stringify({ logoColor }) });
-        document.getElementById('lg-msg').textContent = 'Logo color saved.';
-      } catch (e) { document.getElementById('lg-msg').textContent = e.message; }
-    };
-  });
-
   // ---- create a league ----
-  let clColor = 'black-yellow';
-  body.querySelectorAll('#cl-swatches button').forEach((b) => {
-    b.onclick = () => {
-      clColor = b.dataset.c;
-      body.querySelectorAll('#cl-swatches button').forEach((x) => x.classList.toggle('sel', x === b));
-    };
-  });
   const genBtn = document.getElementById('cl-gen-dates');
   if (genBtn) {
     genBtn.onclick = () => {
@@ -1824,7 +1798,7 @@ async function renderAdminBody(leagues, league) {
           startDate: document.getElementById('cl-start').value,
           stopDate: document.getElementById('cl-stop').value,
           maxPlayers: +document.getElementById('cl-max').value || 36,
-          logoColor: clColor,
+          logoColor: colorForLeague({ type: document.getElementById('cl-type').value, skill: document.getElementById('cl-skill').value }),
         };
         if (dateInputs.length) payload.gameDates = dateInputs;
         const { league: created } = await api('/api/admin/leagues', { method: 'POST', body: JSON.stringify(payload) });
