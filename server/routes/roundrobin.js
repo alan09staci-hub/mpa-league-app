@@ -20,7 +20,7 @@ const {
 } = require('../lib/roundrobin');
 
 const router = express.Router();
-const MAX_TEAMS = 18; // 36 players — the same cap as a league
+const MAX_TEAMS = 24; // 48 players per night
 
 function asInt(v) {
   const n = Number(v);
@@ -63,13 +63,28 @@ async function getMatches(eventId) {
   return rows;
 }
 
+// Solo sign-ups waiting to be paired into teams.
+async function getSolos(eventId) {
+  const { rows } = await pool.query(
+    `SELECT s.id, s.event_id, s.person_id, s.created_at, p.name
+       FROM rr_solos s JOIN people p ON p.id = s.person_id
+      WHERE s.event_id = $1 ORDER BY s.created_at`,
+    [eventId]
+  );
+  return rows;
+}
+
 function teamLabel(t) {
   return `${t.player1} & ${t.player2}`;
 }
 
-// Full event payload: event + teams + matches + standings + payouts + byes.
+// Full event payload: event + teams + solos + matches + standings + payouts + byes.
 async function eventDetail(event, req) {
-  const [teams, matches] = await Promise.all([getTeams(event.id), getMatches(event.id)]);
+  const [teams, matches, solos] = await Promise.all([
+    getTeams(event.id),
+    getMatches(event.id),
+    getSolos(event.id),
+  ]);
   const standings = computeStandings(teams, matches);
   const payout = computePayouts({
     kind: event.kind,
@@ -103,6 +118,12 @@ async function eventDetail(event, req) {
   return {
     event,
     teams: teams.map((t) => ({ ...t, label: teamLabel(t) })),
+    solos: solos.map((s) => ({
+      id: s.id,
+      person_id: s.person_id,
+      name: s.name,
+      created_at: s.created_at,
+    })),
     matches,
     standings: standings.map((s) => ({
       rank: s.rank,
@@ -137,6 +158,7 @@ router.get('/round-robin/events', (req, res) =>
     const { rows } = await pool.query(
       `SELECT e.*,
               (SELECT COUNT(*) FROM rr_teams t WHERE t.event_id = e.id) AS team_count,
+              (SELECT COUNT(*) FROM rr_solos s WHERE s.event_id = e.id) AS solo_count,
               (SELECT COUNT(*) FROM rr_matches m WHERE m.event_id = e.id) AS match_count,
               (SELECT COUNT(*) FROM rr_matches m WHERE m.event_id = e.id AND m.score1 IS NOT NULL) AS scored_count
          FROM rr_events e ORDER BY e.event_date DESC, e.id DESC`
@@ -186,6 +208,115 @@ router.post('/round-robin/events/:id/matches/:mid/score', (req, res) =>
   }, req, res)
 );
 
+// ---------------------------------------------------------------- self-join
+// Members join a published night themselves instead of the organizer adding
+// every team by hand. Only while the night is in setup AND published —
+// joining closes automatically once the night is built (status playing).
+// A team is a fixed pair, so join-team takes the person and their partner;
+// join-solo leaves the person waiting to be paired by the admin.
+
+async function getPerson(id) {
+  const { rows } = await pool.query('SELECT id, name FROM people WHERE id = $1', [id]);
+  return rows[0] || null;
+}
+
+// True when the person is already on this night — on a team (by person id)
+// or signed up solo. Hand-added teams carry NULL person ids, so a name-only
+// team is not a match here.
+async function personOnNight(eventId, personId) {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM rr_teams WHERE event_id = $1 AND (person1_id = $2 OR person2_id = $2)
+      UNION ALL SELECT 1 FROM rr_solos WHERE event_id = $1 AND person_id = $2 LIMIT 1`,
+    [eventId, personId]
+  );
+  return rows.length > 0;
+}
+
+function joinNotOpen(event) {
+  return event.status !== 'setup' || !event.published;
+}
+
+router.post('/round-robin/events/:id/join-team', (req, res) =>
+  handle(async () => {
+    const event = await getEvent(asInt(req.params.id));
+    if (!event) return bad(res, 404, 'Round robin not found.');
+    if (joinNotOpen(event)) return bad(res, 409, 'Sign-ups are not open for this night.');
+    const personId = asInt(req.body.personId);
+    const partnerId = asInt(req.body.partnerPersonId);
+    if (personId == null || partnerId == null) return bad(res, 400, 'Pick yourself and a partner.');
+    if (personId === partnerId) {
+      return bad(res, 400, 'The two players on a team must be different people.');
+    }
+    const [me, partner] = await Promise.all([getPerson(personId), getPerson(partnerId)]);
+    if (!me || !partner) return bad(res, 404, 'Person not found.');
+    if ((await personOnNight(event.id, personId)) || (await personOnNight(event.id, partnerId))) {
+      return bad(res, 409, 'One of you is already on this night.');
+    }
+    const teams = await getTeams(event.id);
+    if (teams.length >= MAX_TEAMS) {
+      return bad(res, 400, `At most ${MAX_TEAMS} teams (${MAX_TEAMS * 2} players) per night.`);
+    }
+    const { rows } = await pool.query(
+      'INSERT INTO rr_teams (event_id, player1, player2, person1_id, person2_id) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [event.id, me.name, partner.name, me.id, partner.id]
+    );
+    res.json({ ok: true, team: rows[0] });
+  }, req, res)
+);
+
+router.post('/round-robin/events/:id/join-solo', (req, res) =>
+  handle(async () => {
+    const event = await getEvent(asInt(req.params.id));
+    if (!event) return bad(res, 404, 'Round robin not found.');
+    if (joinNotOpen(event)) return bad(res, 409, 'Sign-ups are not open for this night.');
+    const personId = asInt(req.body.personId);
+    if (personId == null) return bad(res, 400, 'Pick who you are.');
+    const person = await getPerson(personId);
+    if (!person) return bad(res, 404, 'Person not found.');
+    if (await personOnNight(event.id, personId)) {
+      return bad(res, 409, 'You are already on this night.');
+    }
+    let rows;
+    try {
+      ({ rows } = await pool.query(
+        'INSERT INTO rr_solos (event_id, person_id) VALUES ($1, $2) RETURNING *',
+        [event.id, person.id]
+      ));
+    } catch (e) {
+      // The UNIQUE(event_id, person_id) backstop — a second solo sign-up
+      // racing the check above lands here instead of a 500.
+      if (e.code === '23505') return bad(res, 409, 'You are already on this night.');
+      throw e;
+    }
+    res.json({ ok: true, solo: { ...rows[0], name: person.name } });
+  }, req, res)
+);
+
+// Leave while the night is still in setup. No leaving once it is built —
+// the schedule is fixed then, like a league game day after the deadline.
+router.post('/round-robin/events/:id/leave', (req, res) =>
+  handle(async () => {
+    const event = await getEvent(asInt(req.params.id));
+    if (!event) return bad(res, 404, 'Round robin not found.');
+    if (event.status !== 'setup') {
+      return bad(res, 409, 'The night is already built — sign-ups are closed.');
+    }
+    const personId = asInt(req.body.personId);
+    if (personId == null) return bad(res, 400, 'Pick who you are.');
+    const teamDel = await pool.query(
+      'DELETE FROM rr_teams WHERE event_id = $1 AND (person1_id = $2 OR person2_id = $2)',
+      [event.id, personId]
+    );
+    if (teamDel.rowCount) return res.json({ ok: true, left: 'team' });
+    const soloDel = await pool.query(
+      'DELETE FROM rr_solos WHERE event_id = $1 AND person_id = $2',
+      [event.id, personId]
+    );
+    if (!soloDel.rowCount) return bad(res, 404, 'You are not on this night.');
+    res.json({ ok: true, left: 'solo' });
+  }, req, res)
+);
+
 // ---------------------------------------------------------------- admin
 
 router.post('/admin/round-robin/events', auth.requireAdmin, (req, res) =>
@@ -232,10 +363,11 @@ router.patch('/admin/round-robin/events/:id', auth.requireAdmin, (req, res) =>
       return bad(res, 400, 'Entry fee must be between $0 and $1,000 per person.');
     }
     const payout = req.body.payout != null ? payoutById(req.body.payout).id : event.payout;
+    const published = req.body.published != null ? Boolean(req.body.published) : event.published;
     const { rows } = await pool.query(
-      `UPDATE rr_events SET name = $1, event_date = $2, kind = $3, fee_cents = $4, payout = $5
-       WHERE id = $6 RETURNING *`,
-      [name, req.body.event_date || event.event_date, kind, feeCents || 0, payout, event.id]
+      `UPDATE rr_events SET name = $1, event_date = $2, kind = $3, fee_cents = $4, payout = $5, published = $6
+       WHERE id = $7 RETURNING *`,
+      [name, req.body.event_date || event.event_date, kind, feeCents || 0, payout, published, event.id]
     );
     res.json({ ok: true, event: rows[0] });
   }, req, res)
@@ -259,7 +391,7 @@ router.post('/admin/round-robin/events/:id/teams', auth.requireAdmin, (req, res)
     }
     const teams = await getTeams(event.id);
     if (teams.length >= MAX_TEAMS) {
-      return bad(res, 400, `At most ${MAX_TEAMS} teams (36 players) per night.`);
+      return bad(res, 400, `At most ${MAX_TEAMS} teams (${MAX_TEAMS * 2} players) per night.`);
     }
     const player1 = String(req.body.player1 || '').trim();
     const player2 = String(req.body.player2 || '').trim();
@@ -289,6 +421,50 @@ router.delete('/admin/round-robin/events/:id/teams/:tid', auth.requireAdmin, (re
     );
     if (!rowCount) return bad(res, 404, 'Team not found.');
     res.json({ ok: true });
+  }, req, res)
+);
+
+// Pair two solo sign-ups into one team (Admin-only, setup only). The two
+// solo rows are removed and one team takes their place.
+router.post('/admin/round-robin/events/:id/pair', auth.requireAdmin, (req, res) =>
+  handle(async () => {
+    const event = await getEvent(asInt(req.params.id));
+    if (!event) return bad(res, 404, 'Round robin not found.');
+    if (event.status !== 'setup') {
+      return bad(res, 409, 'Solos can only be paired while the night is in setup.');
+    }
+    const soloIdA = asInt(req.body.soloIdA);
+    const soloIdB = asInt(req.body.soloIdB);
+    if (soloIdA == null || soloIdB == null) return bad(res, 400, 'Pick two solos to pair.');
+    if (soloIdA === soloIdB) return bad(res, 400, 'Pick two different solos.');
+    const { rows } = await pool.query(
+      `SELECT s.id, s.person_id, p.name FROM rr_solos s JOIN people p ON p.id = s.person_id
+        WHERE s.event_id = $1 AND s.id IN ($2, $3)`,
+      [event.id, soloIdA, soloIdB]
+    );
+    if (rows.length !== 2) return bad(res, 404, 'One of those solos is not on this night.');
+    const a = rows.find((r) => r.id === soloIdA);
+    const b = rows.find((r) => r.id === soloIdB);
+    if (a.person_id === b.person_id) {
+      return bad(res, 400, 'The two players on a team must be different people.');
+    }
+    const teams = await getTeams(event.id);
+    if (teams.length >= MAX_TEAMS) {
+      return bad(res, 400, `At most ${MAX_TEAMS} teams (${MAX_TEAMS * 2} players) per night.`);
+    }
+    await pool.query('BEGIN');
+    try {
+      await pool.query('DELETE FROM rr_solos WHERE id IN ($1, $2)', [soloIdA, soloIdB]);
+      const { rows: teamRows } = await pool.query(
+        'INSERT INTO rr_teams (event_id, player1, player2, person1_id, person2_id) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+        [event.id, a.name, b.name, a.person_id, b.person_id]
+      );
+      await pool.query('COMMIT');
+      res.json({ ok: true, team: teamRows[0] });
+    } catch (e) {
+      await pool.query('ROLLBACK');
+      throw e;
+    }
   }, req, res)
 );
 
