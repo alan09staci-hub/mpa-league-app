@@ -177,6 +177,20 @@ table.standings tr.you td { background: #fff8e1; }
 .rr-place-amount .muted { font-size: 13px; }
 .rr-edit { background: none; border: 0; padding: 4px 0; color: var(--grey); font-size: 13px; text-decoration: underline; }
 
+/* ---------- Round Robin create card (Admin page, dark like the preview) ---------- */
+.rr-create-card { background: var(--black); color: #fff; border-radius: 12px; padding: 16px; margin: 4px 0 10px; color-scheme: dark; }
+.rr-create-card h3 { margin-top: 0; color: #fff; letter-spacing: .5px; }
+.rr-create-card label { color: #fff; }
+.rr-create-card .fineprint { color: #b9b9b9; }
+.rr-create-card input, .rr-create-card select { background: #2a2a2a; color: #fff; border: 1px solid #555; }
+.rr-create-card .level-pick button { background: #2a2a2a; color: #fff; border-color: #555; }
+.rr-create-card .level-pick button.picked { background: var(--yellow); color: var(--black); border-color: var(--yellow); }
+.rr-admin-badge { background: var(--yellow); color: var(--black); font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 999px; vertical-align: middle; letter-spacing: 1px; }
+.rr-publish-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 14px 0; }
+.rr-create-card .btn.rr-publish-btn { background: #2a2a2a; color: #fff; border: 1px solid #777; }
+.rr-publish-note { color: #7ee2a0; font-weight: 700; }
+.rr-publish-note.off { color: #b9b9b9; }
+
 /* ---------- game day ---------- */
 .banner { border-radius: 10px; padding: 10px 12px; margin: 10px 0; font-size: 14px; }
 .banner.organizer { background: #fff3cd; border: 1px solid #e6c200; }

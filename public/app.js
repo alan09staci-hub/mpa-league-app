@@ -421,7 +421,7 @@ async function renderLanding(id, mine) {
       ${openNights.length ? `<h2>Round Robin — sign-ups open</h2>
         ${openNights.map((e) => `<div class="card">
           <strong>${esc(e.name)}</strong><br>
-          <span class="muted small">${esc(fmtDateShort(e.event_date))} · ${rrKindLabel(e.kind)}${e.kind === 'money' ? ` · ${rrMoney(e.fee_cents)} per person` : ''} · ${e.team_count} of 24 teams filled${e.solo_count ? ` · ${e.solo_count} waiting to be paired` : ''}</span>
+          <span class="muted small">${esc(rrWhen(e))} · ${rrKindLabel(e.kind)}${e.kind === 'money' ? ` · ${rrMoney(e.fee_cents)} per person` : ''} · ${e.team_count} of ${e.max_teams || 24} teams filled${e.solo_count ? ` · ${e.solo_count} waiting to be paired` : ''}</span>
           <div class="btnrow"><a class="btn green small" href="#/roundrobin/${e.id}">Join this night</a></div>
         </div>`).join('')}` : ''}
       ${leagues.length === 0 ? `<div class="card"><h2>A glimpse of what's coming</h2>
@@ -1723,6 +1723,35 @@ async function renderAdminBody(leagues, league) {
     <div class="btnrow"><button class="btn" id="an-gen">Write the announcement</button></div>
     <div id="an-out"><p class="fineprint">Picks the league and writes an advertising email and a shorter text version from that league's saved record. Nothing is sent by the app — copy the drafts and send them from your own email or phone.</p></div>`;
 
+  // ---- create a round robin night (the preview's Step 1 card) ----
+  const rrCreateHtml = `
+    <div class="rr-create-card">
+      <h3>STEP 1 — YOU CREATE THE NIGHT <span class="rr-admin-badge">ADMIN</span></h3>
+      <p>Same as creating a night today, plus one new thing: a Publish button. Until you publish, members don't see it. Try switching between Free play and Money Ball — watch the member card change.</p>
+      <label>Night name</label><input type="text" id="rrc-name" placeholder="e.g. Monday Money Ball" style="width:100%">
+      <div class="field-row">
+        <div><label>Date</label><input type="date" id="rrc-date"><p class="fineprint" id="rrc-date-label"></p></div>
+        <div><label>Start time</label><input type="time" id="rrc-time" value="18:30"><p class="fineprint">YMCA, 601 26th Ave SE, Moultrie, GA 31768</p></div>
+      </div>
+      <div class="field-row">
+        <div><label>Kind of night</label>
+          <div class="level-pick" id="rrc-kind">
+            <button type="button" data-kind="money" class="picked">Money Ball</button>
+            <button type="button" data-kind="charity">Free play</button>
+          </div>
+          <p class="fineprint" id="rrc-kind-note">Money Ball is the default $10 a person.</p></div>
+        <div id="rrc-fee-wrap"><label>Entry fee per person</label><input type="text" inputmode="decimal" id="rrc-fee" value="10" style="width:80px"><p class="fineprint">Pot grows with every player who joins.</p></div>
+      </div>
+      <div class="field-row">
+        <div><label>Max teams</label><select id="rrc-max">${Array.from({ length: 23 }, (_, i) => i + 2).map((n) => `<option value="${n}"${n === 6 ? ' selected' : ''}>${n} teams · ${Math.ceil(n / 2)} courts</option>`).join('')}</select><p class="fineprint">Signups close on their own when it fills.</p></div>
+        <div><label>Signups close</label><select id="rrc-close"><option value="day-3h">Day of play, 3:30 PM</option><option value="fill">When it fills</option></select><p class="fineprint">You can also close them early by hand.</p></div>
+      </div>
+      <p id="rrc-payout-wrap"><label>Payout</label><select id="rrc-payout">${RR_PAYOUTS.map((p) => `<option value="${p.id}">${esc(p.label)}</option>`).join('')}</select></p>
+      <div class="rr-publish-row"><button class="btn rr-publish-btn" id="rrc-publish">Published ✓ — tap to unpublish</button><span class="rr-publish-note" id="rrc-publish-note">Published — members can see this night and join.</span></div>
+      <div class="btnrow"><button class="btn" id="rrc-create">Create night</button></div>
+      <p class="fineprint" id="rrc-err"></p>
+    </div>`;
+
   // ---- delete a league (wipe it clean) ----
   const deleteHtml = `
     <label>League</label><select id="dl-league">${leagues.map((l) => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select>
@@ -1739,7 +1768,8 @@ async function renderAdminBody(leagues, league) {
     section('penalties', 'Standings penalties', 'Miss penalties and Admin adjustments per player.', penaltiesHtml) +
     section('tools', 'Game day tools', 'Finish a game day, build the schedule, print the court sheet, and move a game day.', toolsHtml) +
     section('announce', 'Announce this league', 'Writes the email and text announcement for a league, with copy buttons.', announceSectionHtml) +
-    section('delete', 'Delete a league', 'Wipe a league clean: players, game days, matches, and sign-ups go with it. Members stay.', deleteHtml);
+    section('delete', 'Delete a league', 'Wipe a league clean: players, game days, matches, and sign-ups go with it. Members stay.', deleteHtml) +
+    section('roundrobin', 'Round Robin', 'Create a one-off round robin night — members join themselves once it is published.', rrCreateHtml);
 
 
   body.querySelectorAll('.admin-section > button.head').forEach((b) => {
@@ -1766,6 +1796,85 @@ async function renderAdminBody(leagues, league) {
         adminLeagueId = null;
         renderAdmin();
       } catch (e) { msg.textContent = e.message; }
+    };
+  }
+
+  // ---- create a round robin night ----
+  const rrcCreateBtn = document.getElementById('rrc-create');
+  if (rrcCreateBtn) {
+    let rrcKind = 'money';
+    let rrcPublished = true;
+    const rrcDate = document.getElementById('rrc-date');
+    const rrcDateLabel = document.getElementById('rrc-date-label');
+    const rrcTime = document.getElementById('rrc-time');
+    const rrcClose = document.getElementById('rrc-close');
+    const rrcFeeWrap = document.getElementById('rrc-fee-wrap');
+    const rrcPayoutWrap = document.getElementById('rrc-payout-wrap');
+    const rrcKindNote = document.getElementById('rrc-kind-note');
+    const rrcPublishBtn = document.getElementById('rrc-publish');
+    const rrcPublishNote = document.getElementById('rrc-publish-note');
+    const rrcSyncDate = () => {
+      if (rrcDateLabel) {
+        rrcDateLabel.textContent = rrcDate.value
+          ? asLocalDate(rrcDate.value).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+          : '';
+      }
+    };
+    const rrcSyncClose = () => {
+      const opt = rrcClose ? rrcClose.querySelector('option[value="day-3h"]') : null;
+      if (opt) {
+        const [h, m] = (rrcTime.value || '18:30').split(':').map(Number);
+        const close = `${String((h - 3 + 24) % 24).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}`;
+        opt.textContent = `Day of play, ${fmtClock(close)}`;
+      }
+    };
+    const rrcSyncPublish = () => {
+      rrcPublishBtn.textContent = rrcPublished ? 'Published ✓ — tap to unpublish' : 'Not published — tap to publish';
+      rrcPublishNote.textContent = rrcPublished
+        ? 'Published — members can see this night and join.'
+        : "Not published — members won't see this night until you publish it.";
+      rrcPublishNote.classList.toggle('off', !rrcPublished);
+    };
+    if (rrcDate) rrcDate.onchange = rrcSyncDate;
+    if (rrcTime) rrcTime.onchange = rrcSyncClose;
+    rrcSyncClose();
+    document.querySelectorAll('#rrc-kind button').forEach((b) => {
+      b.onclick = () => {
+        rrcKind = b.dataset.kind;
+        document.querySelectorAll('#rrc-kind button').forEach((x) => x.classList.toggle('picked', x === b));
+        const money = rrcKind === 'money';
+        if (rrcFeeWrap) rrcFeeWrap.hidden = !money;
+        if (rrcPayoutWrap) rrcPayoutWrap.hidden = !money;
+        if (rrcKindNote) rrcKindNote.textContent = money ? 'Money Ball is the default $10 a person.' : 'Free play — no entry fee, no payouts. The Leaders card shows the top 3 teams instead.';
+      };
+    });
+    if (rrcPublishBtn) rrcPublishBtn.onclick = () => { rrcPublished = !rrcPublished; rrcSyncPublish(); };
+    rrcCreateBtn.onclick = async () => {
+      const err = document.getElementById('rrc-err');
+      const name = document.getElementById('rrc-name').value.trim();
+      const date = rrcDate.value;
+      if (!name) { err.textContent = 'Give the night a name.'; return; }
+      if (!date) { err.textContent = 'Pick a date.'; return; }
+      const body = {
+        name,
+        event_date: date,
+        kind: rrcKind,
+        start_time: rrcTime.value || '18:30',
+        max_teams: +document.getElementById('rrc-max').value || 6,
+        signup_close: rrcClose.value,
+        published: rrcPublished,
+      };
+      if (rrcKind === 'money') {
+        const fee = parseFloat(document.getElementById('rrc-fee').value);
+        if (Number.isNaN(fee) || fee < 0) { err.textContent = 'Entry fee must be $0 or more.'; return; }
+        body.fee_cents = Math.round(fee * 100);
+        body.payout = document.getElementById('rrc-payout').value;
+      }
+      try {
+        const { event } = await post('/api/admin/round-robin/events', body);
+        toast('Night created.');
+        location.hash = `#/roundrobin/${event.id}`;
+      } catch (e) { err.textContent = e.message; }
     };
   }
 
@@ -2968,16 +3077,40 @@ function rrKindLabel(kind) {
 function rrStatusLabel(s) {
   return s === 'setup' ? 'Setting up' : s === 'playing' ? 'Playing' : 'Finished';
 }
+// The YYYY-MM-DD part of an event date. The API returns the stored DATE as
+// an ISO string at midnight UTC — slice the date part off instead of
+// building a Date from it, or the night renders a day early in EST.
+function rrEventDatePart(ev) {
+  return String(ev.event_date || '').slice(0, 10);
+}
+// "Mon Nov 23 · 6:30 PM" — weekday + date from the stored date part, time
+// from the night's own start time (default 6:30 PM).
+function rrWhen(ev) {
+  const d = asLocalDate(rrEventDatePart(ev));
+  const wd = d.toLocaleDateString('en-US', { weekday: 'short' });
+  const md = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return `${wd} ${md} · ${fmtClock(String(ev.start_time || '18:30').slice(0, 5))}`;
+}
+// "Sign-ups close Mon 3:30 PM" for day-3h nights (start time minus 3
+// hours, same day); "Sign-ups close when full" for fill nights.
+function rrCloseLabel(ev) {
+  if (ev.signup_close === 'fill') return 'Sign-ups close when full';
+  const [h, m] = String(ev.start_time || '18:30').slice(0, 5).split(':').map(Number);
+  const close = `${String((h - 3 + 24) % 24).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}`;
+  const wd = asLocalDate(rrEventDatePart(ev)).toLocaleDateString('en-US', { weekday: 'short' });
+  return `Sign-ups close ${wd} ${fmtClock(close)}`;
+}
 function rrPayoutLabel(id) {
   const p = RR_PAYOUTS.find((x) => x.id === id);
   return p ? p.label : id;
 }
 
 async function renderRRList() {
+  // Nights list only — creating a night moved to the Admin page
+  // ("Round Robin" section), where the create card lives.
   app.innerHTML = `<h1>Round Robin</h1>
     <p class="muted">One-off nights, separate from leagues. Fixed teams stay together all night — every team plays every other team once.</p>
-    <div id="rrList"><p class="muted">Loading…</p></div>
-    <div id="rrNew"></div>`;
+    <div id="rrList"><p class="muted">Loading…</p></div>`;
   const me = await api('/api/admin/me').catch(() => ({ admin: false }));
   const { events } = await api('/api/round-robin/events').catch(() => ({ events: [] }));
   document.getElementById('rrList').innerHTML = events.length
@@ -2986,53 +3119,12 @@ async function renderRRList() {
           const joinOpen = ev.published && ev.status === 'setup' && !me.admin;
           return `<div class="card">
         <strong>${esc(ev.name)}</strong><br>
-        <span class="muted">${esc(fmtDateShort(ev.event_date))} · ${rrKindLabel(ev.kind)} · ${rrStatusLabel(ev.status)}${ev.published && ev.status === 'setup' ? ' · Sign-ups open' : ''} · ${ev.team_count} team(s)${ev.solo_count ? ` · ${ev.solo_count} waiting to be paired` : ''}${ev.kind === 'money' ? ` · ${rrMoney(ev.fee_cents)} per person` : ''}${ev.match_count ? ` · ${ev.scored_count}/${ev.match_count} scored` : ''}</span>
+        <span class="muted">${esc(rrWhen(ev))} · ${rrKindLabel(ev.kind)} · ${rrStatusLabel(ev.status)}${ev.published && ev.status === 'setup' ? ' · Sign-ups open' : ''} · ${ev.team_count} team(s)${ev.solo_count ? ` · ${ev.solo_count} waiting to be paired` : ''}${ev.kind === 'money' ? ` · ${rrMoney(ev.fee_cents)} per person` : ''}${ev.match_count ? ` · ${ev.scored_count}/${ev.match_count} scored` : ''}</span>
         <div class="btnrow"><a class="btn ${joinOpen ? 'green ' : ''}small" href="#/roundrobin/${ev.id}">${joinOpen ? 'Join' : 'Open'}</a></div>
       </div>`;
         })
         .join('')
     : `<div class="card"><p>No round robin nights yet.</p></div>`;
-  if (!me.admin) return;
-  document.getElementById('rrNew').innerHTML = `
-    <div class="card"><h3>New round robin</h3>
-      <p><input type="text" id="rr-name" placeholder="Night name — e.g. Friday Money Ball" style="width:100%"></p>
-      <p><input type="date" id="rr-date"></p>
-      <div class="level-pick" id="rr-kind">
-        <button type="button" data-kind="charity" class="picked">Free Charity</button>
-        <button type="button" data-kind="money">Money Ball</button>
-      </div>
-      <div id="rr-money-fields" hidden>
-        <p>Entry fee per person ($) <input type="text" inputmode="decimal" id="rr-fee" value="10" style="width:80px"></p>
-        <p>Payout <select id="rr-payout">${RR_PAYOUTS.map((p) => `<option value="${p.id}">${esc(p.label)}</option>`).join('')}</select></p>
-      </div>
-      <div class="btnrow"><button class="btn" id="rr-create">Create</button></div>
-    </div>`;
-  let kind = 'charity';
-  document.querySelectorAll('#rr-kind button').forEach((b) => {
-    b.onclick = () => {
-      kind = b.dataset.kind;
-      document.querySelectorAll('#rr-kind button').forEach((x) => x.classList.toggle('picked', x === b));
-      document.getElementById('rr-money-fields').hidden = kind !== 'money';
-    };
-  });
-  document.getElementById('rr-create').onclick = async () => {
-    const name = document.getElementById('rr-name').value.trim();
-    const date = document.getElementById('rr-date').value;
-    if (!name) { toast('Give the night a name.'); return; }
-    if (!date) { toast('Pick a date.'); return; }
-    const body = { name, event_date: date, kind };
-    if (kind === 'money') {
-      const fee = parseFloat(document.getElementById('rr-fee').value);
-      if (Number.isNaN(fee) || fee < 0) { toast('Entry fee must be $0 or more.'); return; }
-      body.fee_cents = Math.round(fee * 100);
-      body.payout = document.getElementById('rr-payout').value;
-    }
-    try {
-      const { event } = await post('/api/admin/round-robin/events', body);
-      toast('Night created.');
-      location.hash = `#/roundrobin/${event.id}`;
-    } catch (e) { toast(e.message); }
-  };
 }
 
 async function renderRREvent(id) {
@@ -3058,7 +3150,8 @@ async function renderRREvent(id) {
     rrScoreMatchId = null;
   }
   let html = `<h1>${esc(event.name)}</h1>
-    <p class="muted">${esc(fmtDateShort(event.event_date))} · ${rrKindLabel(event.kind)} · ${rrStatusLabel(event.status)}</p>`;
+    <p class="muted">${esc(rrWhen(event))} · ${rrKindLabel(event.kind)} · ${rrStatusLabel(event.status)}</p>
+    ${event.status === 'setup' ? `<p class="muted">${esc(rrCloseLabel(event))}</p>` : ''}`;
   if (finished) html += `<div class="banner finished">Night finished — final standings and payouts below.</div>`;
   const placeLabel = (n) => ['1ST', '2ND', '3RD'][n - 1] || `${n}TH`;
   if (event.kind === 'money' && payouts) {
@@ -3102,7 +3195,7 @@ async function renderRREvent(id) {
   const meId = getIdentity() ? getIdentity().personId : null;
   const myTeam = meId ? teams.find((t) => t.person1_id === meId || t.person2_id === meId) : null;
   const mySolo = meId ? solos.find((s) => s.person_id === meId) : null;
-  const nightFull = teams.length >= 24;
+  const nightFull = teams.length >= (event.max_teams || 24);
   if (event.status === 'setup' && event.published) {
     // Join box — members join themselves. The organizer's add-by-hand form
     // stays below in the Teams card, and joining closes on its own once
@@ -3127,7 +3220,7 @@ async function renderRREvent(id) {
         <div id="rr-partner-list">${partner ? `<p>Partner: <strong>${esc(partner.name)}</strong> <button class="btn secondary small" id="rr-partner-clear">Change</button></p>` : '<p class="muted">Pick a partner, or join solo and the organizer will pair you up.</p>'}</div>
         <div class="btnrow"><button class="btn" id="rr-join-team" ${partner && !nightFull ? '' : 'disabled'}>Join as a team</button>
         <button class="btn secondary" id="rr-join-solo" ${nightFull ? 'disabled' : ''}>Join solo</button></div>
-        ${nightFull ? '<p class="muted">This night is full (24 teams).</p>' : ''}`;
+        ${nightFull ? `<p class="muted">This night is full (${event.max_teams || 24} teams).</p>` : ''}`;
     }
     html += `</div>`;
   }
