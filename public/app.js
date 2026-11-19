@@ -1623,6 +1623,20 @@ async function renderAdminBody(leagues, league) {
   let playersHtml = '<p class="muted">Pick a league above.</p>';
   let penaltiesHtml = '<p class="muted">Pick a league above.</p>';
   let toolsHtml = '<p class="muted">Pick a league above.</p>';
+
+  // Members are not tied to a league — the directory lists every free
+  // member with Edit/Remove whether or not a league exists. (With no
+  // leagues live this used to read "Pick a league above.")
+  const { members } = await api('/api/admin/members');
+  membersHtml = members.map((m) => `
+    <div class="person-row" data-mid="${m.id}"><span class="who"><span class="nm">${esc(m.name)}</span>
+      <div class="fp">${m.self_rated ? `Self-rated ${m.dupr_rating ?? ''}` : `DUPR ${esc(m.dupr_id || '—')} · ${m.dupr_rating ?? ''}`}${m.leagues && m.leagues.length ? ` · Leagues: ${m.leagues.map(esc).join(', ')}` : ''}</div>
+      <div class="fp">${esc(m.email || '')}${m.email && m.phone ? ' · ' : ''}${esc(m.phone || '')} · joined ${fmtDateShort(m.joined_at)}</div></span>
+      <span class="rowbtns">
+        <button class="btn secondary small" data-mem-edit="${m.id}">Edit</button>
+        <button class="btn secondary small" data-mem-del="${m.id}">Remove</button>
+      </span></div>
+    <div class="edit-slot" id="mem-edit-${m.id}"></div>`).join('') || '<p class="muted">No free members yet.</p>';
   if (league) {
     const l = await api(`/api/leagues/${league.id}`);
     regHtml = `
@@ -1642,17 +1656,6 @@ async function renderAdminBody(leagues, league) {
           <button class="btn secondary small" data-reg-del="${r.id}">Delete</button>
         </span></div>`).join('') || '<p class="muted">No sign-ups for this league yet.</p>';
     regsHtml += `<p class="fineprint">Confirm moves a sign-up to confirmed; "Add to league" puts the person on the roster (carrying any fee waiver with them). Waiving a fee hides the ReClique Pay button for that person. Nothing here charges anyone — payment happens on ReClique.</p>`;
-
-    const { members } = await api('/api/admin/members');
-    membersHtml = members.map((m) => `
-      <div class="person-row" data-mid="${m.id}"><span class="who"><span class="nm">${esc(m.name)}</span>
-        <div class="fp">${m.self_rated ? `Self-rated ${m.dupr_rating ?? ''}` : `DUPR ${esc(m.dupr_id || '—')} · ${m.dupr_rating ?? ''}`}${m.leagues && m.leagues.length ? ` · Leagues: ${m.leagues.map(esc).join(', ')}` : ''}</div>
-        <div class="fp">${esc(m.email || '')}${m.email && m.phone ? ' · ' : ''}${esc(m.phone || '')} · joined ${fmtDateShort(m.joined_at)}</div></span>
-        <span class="rowbtns">
-          <button class="btn secondary small" data-mem-edit="${m.id}">Edit</button>
-          <button class="btn secondary small" data-mem-del="${m.id}">Remove</button>
-        </span></div>
-      <div class="edit-slot" id="mem-edit-${m.id}"></div>`).join('') || '<p class="muted">No free members yet.</p>';
 
     const { roster } = await api(`/api/leagues/${league.id}/roster`);
     playersHtml = `
