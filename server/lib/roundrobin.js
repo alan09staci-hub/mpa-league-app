@@ -1,7 +1,8 @@
 'use strict';
 // Round Robin — pure logic (no DB): schedule building, team standings and
-// money-ball payouts. Kept dependency-free so it can be unit-tested with
+// money-ball payouts. Kept free of DB access so it can be unit-tested with
 // plain node.
+const { zonedToUtc, addHours, TZ } = require('./time');
 //
 // Schedule: fixed doubles teams stay together all night. Every team plays
 // every other team once (circle method). One game to 11, first to 11
@@ -64,6 +65,27 @@ function buildSchedule(teamIds) {
     arr.splice(1, 0, arr.pop());
   }
   return out;
+}
+
+// The YYYY-MM-DD part of an event date. pg returns DATE columns as a Date
+// at midnight UTC and JSON carries an ISO string — either way the stored
+// date is the UTC date / the first ten characters. Never derive the date
+// from the UTC instant in a US timezone: midnight UTC is the previous
+// evening in EST, so a naive new Date() renders the night a day early.
+function eventDatePart(event) {
+  const d = event.event_date;
+  if (d instanceof Date) return d.toISOString().slice(0, 10);
+  return String(d || '').slice(0, 10);
+}
+
+// When sign-ups close for a night. 'day-3h' closes 3 hours before the
+// night starts (event date + start time in the league zone — the same
+// 3-hour deadline as league opt-in); 'fill' never closes on time, it
+// closes when the night fills. Returns a Date (UTC instant) or null.
+function signupCloseAt(event, tz = TZ) {
+  if (!event || event.signup_close !== 'day-3h') return null;
+  const time = String(event.start_time || '18:30').slice(0, 5);
+  return addHours(zonedToUtc(eventDatePart(event), time, tz), -3);
 }
 
 // Win-by-2 score rule for a game to `target` (11). Returns an error message
@@ -170,4 +192,4 @@ function computePayouts({ kind, feeCents, payoutId, teamCount }) {
   return { potCents: pot, places: paid };
 }
 
-module.exports = { PAYOUTS, payoutById, buildSchedule, computeStandings, computePayouts, scoreError };
+module.exports = { PAYOUTS, payoutById, buildSchedule, computeStandings, computePayouts, scoreError, eventDatePart, signupCloseAt };
