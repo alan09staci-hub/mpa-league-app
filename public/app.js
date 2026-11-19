@@ -392,13 +392,15 @@ async function renderLanding(id, mine) {
   const first = id.name.split(' ')[0];
   app.innerHTML = `<h1>Your league</h1><p class="muted">Loading…</p>`;
   try {
-    const [{ leagues }, { members }] = await Promise.all([
+    const [{ leagues }, { members }, { events: rrEvents }] = await Promise.all([
       api('/api/leagues'),
       api('/api/members').catch(() => ({ members: [] })),
+      api('/api/round-robin/events').catch(() => ({ events: [] })),
     ]);
     const mineIds = new Set(mine.map((l) => l.id));
     const mineFull = leagues.filter((l) => mineIds.has(l.id));
     const newSeasons = leagues.filter((l) => !mineIds.has(l.id));
+    const openNights = (rrEvents || []).filter((e) => e.published && e.status === 'setup');
     app.innerHTML = `
       <h1>Your league</h1>
       <p class="muted">Hi ${esc(first)} — here are the leagues you are part of.</p>
@@ -416,6 +418,12 @@ async function renderLanding(id, mine) {
           <div class="btnrow"><a class="btn green small" href="#/join/${l.id}">Join this league</a></div>
         </div>`).join('')}` : ''}
       <div class="btnrow"><a class="btn secondary" href="#/members">Members</a><a class="btn secondary" href="#/myleagues">My Leagues</a></div>
+      ${openNights.length ? `<h2>Round Robin — sign-ups open</h2>
+        ${openNights.map((e) => `<div class="card">
+          <strong>${esc(e.name)}</strong><br>
+          <span class="muted small">${esc(fmtDateShort(e.event_date))} · ${rrKindLabel(e.kind)}${e.kind === 'money' ? ` · ${rrMoney(e.fee_cents)} per person` : ''} · ${e.team_count} of 24 teams filled${e.solo_count ? ` · ${e.solo_count} waiting to be paired` : ''}</span>
+          <div class="btnrow"><a class="btn green small" href="#/roundrobin/${e.id}">Join this night</a></div>
+        </div>`).join('')}` : ''}
       ${leagues.length === 0 ? `<div class="card"><h2>A glimpse of what's coming</h2>
         <p class="muted small">Here's what the app looks like once play starts. The samples below are from the completed test season, not live pages.</p>
         <div class="gl-phone">
@@ -2910,6 +2918,36 @@ render();
 // Scoring mirrors the league flow: one match at a time, SCORE button,
 // dedicated score screen, finished matches below.
 let rrScoreMatchId = null;
+// Partner picked in the join box (survives the 30s refresh), and the first
+// solo picked for Admin pairing. Both carry the event id they belong to,
+// so a stale pick from another night is ignored.
+let rrJoinPartner = null; // { personId, name, eventId }
+let rrPairFirst = null; // { id, eventId, name }
+
+// Member search shared by the join pickers: members first, then any other
+// person record, merged by person id — the same merge as Find your league.
+async function rrSearchPeople(q) {
+  const [{ people }, { members }] = await Promise.all([
+    api(`/api/people/search?q=${encodeURIComponent(q)}`).catch(() => ({ people: [] })),
+    api(`/api/members/search?q=${encodeURIComponent(q)}`).catch(() => ({ members: [] })),
+  ]);
+  const byId = new Map();
+  for (const p of people || []) {
+    byId.set(p.id, { personId: p.id, name: p.name, dupr_id: p.dupr_id, dupr_rating: p.dupr_rating, self_rated: p.self_rated });
+  }
+  for (const m of members || []) {
+    if (m.person_id && !byId.has(m.person_id)) {
+      byId.set(m.person_id, { personId: m.person_id, name: m.name, dupr_id: m.dupr_id, dupr_rating: m.dupr_rating, self_rated: m.self_rated });
+    }
+  }
+  return [...byId.values()];
+}
+
+function rrPersonRowHtml(p) {
+  return `<div class="person-row tappable" data-pid="${p.personId}" data-name="${esc(p.name)}">
+    <span class="who"><span class="nm">${esc(p.name)}</span>
+    <div class="fp">${p.dupr_id ? `DUPR ${esc(p.dupr_id)} · ${p.dupr_rating ?? ''}` : (p.self_rated ? `Self-rated ${p.dupr_rating ?? ''}` : 'No DUPR on file')}</div></span></div>`;
+}
 
 const RR_PAYOUTS = [
   { id: 'house', label: 'House rule — 3rd gets entry back, 1st & 2nd split the rest 60/40' },
@@ -2944,13 +2982,14 @@ async function renderRRList() {
   const { events } = await api('/api/round-robin/events').catch(() => ({ events: [] }));
   document.getElementById('rrList').innerHTML = events.length
     ? events
-        .map(
-          (ev) => `<div class="card">
+        .map((ev) => {
+          const joinOpen = ev.published && ev.status === 'setup' && !me.admin;
+          return `<div class="card">
         <strong>${esc(ev.name)}</strong><br>
-        <span class="muted">${esc(fmtDateShort(ev.event_date))} · ${rrKindLabel(ev.kind)} · ${rrStatusLabel(ev.status)} · ${ev.team_count} team(s)${ev.kind === 'money' ? ` · ${rrMoney(ev.fee_cents)} per person` : ''}${ev.match_count ? ` · ${ev.scored_count}/${ev.match_count} scored` : ''}</span>
-        <div class="btnrow"><a class="btn small" href="#/roundrobin/${ev.id}">Open</a></div>
-      </div>`
-        )
+        <span class="muted">${esc(fmtDateShort(ev.event_date))} · ${rrKindLabel(ev.kind)} · ${rrStatusLabel(ev.status)}${ev.published && ev.status === 'setup' ? ' · Sign-ups open' : ''} · ${ev.team_count} team(s)${ev.solo_count ? ` · ${ev.solo_count} waiting to be paired` : ''}${ev.kind === 'money' ? ` · ${rrMoney(ev.fee_cents)} per person` : ''}${ev.match_count ? ` · ${ev.scored_count}/${ev.match_count} scored` : ''}</span>
+        <div class="btnrow"><a class="btn ${joinOpen ? 'green ' : ''}small" href="#/roundrobin/${ev.id}">${joinOpen ? 'Join' : 'Open'}</a></div>
+      </div>`;
+        })
         .join('')
     : `<div class="card"><p>No round robin nights yet.</p></div>`;
   if (!me.admin) return;
@@ -3006,7 +3045,7 @@ async function renderRREvent(id) {
     app.innerHTML = `<div class="banner warn">${esc(data.error || 'Not found.')}</div>`;
     return;
   }
-  const { event, teams, matches, standings, payouts, byes, isAdmin } = data;
+  const { event, teams, solos = [], matches, standings, payouts, byes, isAdmin } = data;
   const byId = new Map(teams.map((t) => [t.id, t]));
   // Matches arrive ordered by round, court — number them 1..N for the night
   // so every card has its own number (the old "Match ${round}" label put
@@ -3058,17 +3097,62 @@ async function renderRREvent(id) {
         .join('')}
     </div>`;
   }
+  // Where the viewer stands on this night (person ids come from the
+  // self-join endpoints; hand-added teams carry NULL ids and never match).
+  const meId = getIdentity() ? getIdentity().personId : null;
+  const myTeam = meId ? teams.find((t) => t.person1_id === meId || t.person2_id === meId) : null;
+  const mySolo = meId ? solos.find((s) => s.person_id === meId) : null;
+  const nightFull = teams.length >= 24;
+  if (event.status === 'setup' && event.published) {
+    // Join box — members join themselves. The organizer's add-by-hand form
+    // stays below in the Teams card, and joining closes on its own once
+    // the night is built (status playing).
+    html += `<div class="card" id="rr-join-box"><h3>Join this night</h3>`;
+    if (!meId) {
+      html += `<p class="muted">Sign-ups are open — tap your name to join.</p>
+        <div class="searchrow"><input type="text" id="rr-who-q" placeholder="Search your name…" autocomplete="off"></div>
+        <div id="rr-who-list"><p class="muted">Type your name above.</p></div>
+        <p class="muted">Not a member yet? <a href="#/members">Become a free MPA member</a> first.</p>`;
+    } else if (myTeam) {
+      html += `<p>You're in — <strong>${esc(myTeam.label)}</strong></p>
+        <div class="btnrow"><button class="btn secondary small" id="rr-leave">Leave this night</button></div>`;
+    } else if (mySolo) {
+      html += `<p>You're signed up solo — waiting to be paired.</p>
+        <div class="btnrow"><button class="btn secondary small" id="rr-leave">Leave this night</button></div>`;
+    } else {
+      const partner = rrJoinPartner && rrJoinPartner.eventId === id ? rrJoinPartner : null;
+      html += `<p>Join as <strong>${esc(getIdentity().name)}</strong></p>
+        <label>Partner (for a team)</label>
+        <div class="searchrow"><input type="text" id="rr-partner-q" placeholder="Search your partner's name…" autocomplete="off"></div>
+        <div id="rr-partner-list">${partner ? `<p>Partner: <strong>${esc(partner.name)}</strong> <button class="btn secondary small" id="rr-partner-clear">Change</button></p>` : '<p class="muted">Pick a partner, or join solo and the organizer will pair you up.</p>'}</div>
+        <div class="btnrow"><button class="btn" id="rr-join-team" ${partner && !nightFull ? '' : 'disabled'}>Join as a team</button>
+        <button class="btn secondary" id="rr-join-solo" ${nightFull ? 'disabled' : ''}>Join solo</button></div>
+        ${nightFull ? '<p class="muted">This night is full (24 teams).</p>' : ''}`;
+    }
+    html += `</div>`;
+  }
   if (event.status === 'setup') {
     html += `<div class="card"><h3>Teams — ${teams.length}</h3>
       ${teams.map((t) => `<div>${esc(t.label)}${isAdmin ? ` <button class="btn secondary small" data-rm-team="${t.id}">Remove</button>` : ''}</div>`).join('') || '<p class="muted">No teams yet.</p>'}
       ${isAdmin ? `<p><input type="text" id="rr-p1" placeholder="Player 1" style="width:45%"> <input type="text" id="rr-p2" placeholder="Player 2" style="width:45%"></p>
       <div class="btnrow"><button class="btn small" id="rr-add-team">Add team</button></div>` : '<p class="muted">Waiting for the organizer to add teams and build the night.</p>'}
     </div>`;
+    if (solos.length) {
+      html += `<div class="card"><h3>Waiting to be paired — ${solos.length}</h3>
+        ${solos.map((s) => {
+          const picked = isAdmin && rrPairFirst && rrPairFirst.eventId === id && rrPairFirst.id === s.id;
+          return `<div>${esc(s.name)}${isAdmin ? ` <button class="btn secondary small" data-rr-pair="${s.id}"${picked ? ' disabled' : ''}>${picked ? 'Picked — now tap a second solo' : 'Pair'}</button>` : ''}</div>`;
+        }).join('')}
+        ${isAdmin ? '<p class="muted">Tap Pair on two solos to make them a team.</p>' : '<p class="muted">The organizer pairs solos into teams.</p>'}
+      </div>`;
+    }
     if (isAdmin) {
       html += `<div class="card"><h3>Night settings</h3>
         ${event.kind === 'money' ? `<p>Entry fee per person ($) <input type="text" inputmode="decimal" id="rr-edit-fee" value="${(event.fee_cents / 100).toFixed(2)}" style="width:80px"></p>
         <p>Payout <select id="rr-edit-payout">${RR_PAYOUTS.map((p) => `<option value="${p.id}"${p.id === event.payout ? ' selected' : ''}>${esc(p.label)}</option>`).join('')}</select></p>
         <div class="btnrow"><button class="btn small" id="rr-save-settings">Save settings</button></div>` : '<p class="muted">Free charity night — no fee, no payouts. To run this as a money ball instead, delete it and create a new night.</p>'}
+        <p>Sign-ups: <strong>${event.published ? 'Open — members can join' : 'Closed — members cannot join'}</strong></p>
+        <div class="btnrow"><button class="btn secondary small" id="rr-publish">${event.published ? 'Unpublish' : 'Publish'}</button>${event.published ? '<button class="btn secondary small" id="rr-close-signups">Close signups</button>' : ''}</div>
         <div class="btnrow"><button class="btn" id="rr-build" ${teams.length < 2 ? 'disabled' : ''}>Build the night</button>
         <button class="btn secondary small" id="rr-delete">Delete night</button></div>
         <p class="muted">Building pairs every team against every other team once — ${teams.length} teams make ${teams.length * (teams.length - 1) / 2} games to 11.</p>
@@ -3240,8 +3324,136 @@ async function renderRREvent(id) {
       } catch (e) { toast(e.message); }
     };
   }
+  // ---- self-join wiring ----
+  const whoQ = document.getElementById('rr-who-q');
+  if (whoQ) {
+    const whoList = document.getElementById('rr-who-list');
+    whoQ.addEventListener('input', async () => {
+      const q = whoQ.value.trim();
+      if (q.length < 2) { whoList.innerHTML = '<p class="muted">Type your name above.</p>'; return; }
+      const rows = await rrSearchPeople(q);
+      if (!rows.length) { whoList.innerHTML = '<p class="muted">No match — check the spelling, or become a member first.</p>'; return; }
+      whoList.innerHTML = rows.map(rrPersonRowHtml).join('');
+      whoList.querySelectorAll('.person-row').forEach((row) => {
+        row.onclick = () => {
+          setIdentity(+row.dataset.pid, row.dataset.name);
+          toast(`Hi ${row.dataset.name} — welcome back.`);
+          renderRREvent(id);
+        };
+      });
+    });
+  }
+  const partnerQ = document.getElementById('rr-partner-q');
+  if (partnerQ) {
+    const partnerList = document.getElementById('rr-partner-list');
+    partnerQ.addEventListener('input', async () => {
+      const q = partnerQ.value.trim();
+      if (q.length < 2) { partnerList.innerHTML = '<p class="muted">Pick a partner, or join solo and the organizer will pair you up.</p>'; return; }
+      const rows = (await rrSearchPeople(q)).filter((p) => p.personId !== meId);
+      if (!rows.length) { partnerList.innerHTML = '<p class="muted">No match — check the spelling.</p>'; return; }
+      partnerList.innerHTML = rows.map(rrPersonRowHtml).join('');
+      partnerList.querySelectorAll('.person-row').forEach((row) => {
+        row.onclick = () => {
+          rrJoinPartner = { personId: +row.dataset.pid, name: row.dataset.name, eventId: id };
+          partnerList.innerHTML = `<p>Partner: <strong>${esc(rrJoinPartner.name)}</strong> <button class="btn secondary small" id="rr-partner-clear">Change</button></p>`;
+          const joinTeamBtn = document.getElementById('rr-join-team');
+          if (joinTeamBtn) joinTeamBtn.disabled = false;
+          wirePartnerClear();
+        };
+      });
+    });
+  }
+  function wirePartnerClear() {
+    const clearBtn = document.getElementById('rr-partner-clear');
+    if (clearBtn) {
+      clearBtn.onclick = () => {
+        rrJoinPartner = null;
+        document.getElementById('rr-partner-list').innerHTML = '<p class="muted">Pick a partner, or join solo and the organizer will pair you up.</p>';
+        const joinTeamBtn = document.getElementById('rr-join-team');
+        if (joinTeamBtn) joinTeamBtn.disabled = true;
+      };
+    }
+  }
+  wirePartnerClear();
+  const joinTeamBtn = document.getElementById('rr-join-team');
+  if (joinTeamBtn) {
+    joinTeamBtn.onclick = async () => {
+      if (!rrJoinPartner || rrJoinPartner.eventId !== id) { toast('Pick a partner first.'); return; }
+      try {
+        await post(`/api/round-robin/events/${id}/join-team`, { personId: meId, partnerPersonId: rrJoinPartner.personId });
+        toast(`You're in — ${getIdentity().name} & ${rrJoinPartner.name}.`);
+        rrJoinPartner = null;
+        renderRREvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const joinSoloBtn = document.getElementById('rr-join-solo');
+  if (joinSoloBtn) {
+    joinSoloBtn.onclick = async () => {
+      try {
+        await post(`/api/round-robin/events/${id}/join-solo`, { personId: meId });
+        toast('Signed up solo — the organizer will pair you up.');
+        renderRREvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const leaveBtn = document.getElementById('rr-leave');
+  if (leaveBtn) {
+    leaveBtn.onclick = async () => {
+      try {
+        await post(`/api/round-robin/events/${id}/leave`, { personId: meId });
+        toast('You left this night.');
+        renderRREvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  app.querySelectorAll('button[data-rr-pair]').forEach((b) => {
+    b.onclick = async () => {
+      const soloId = +b.dataset.rrPair;
+      if (!rrPairFirst || rrPairFirst.eventId !== id) {
+        const solo = solos.find((s) => s.id === soloId);
+        rrPairFirst = { id: soloId, eventId: id, name: solo ? solo.name : '' };
+        toast(`Picked ${rrPairFirst.name || 'solo'} — now tap a second solo to pair them.`);
+        renderRREvent(id);
+        return;
+      }
+      if (rrPairFirst.id === soloId) { rrPairFirst = null; renderRREvent(id); return; }
+      try {
+        await post(`/api/admin/round-robin/events/${id}/pair`, { soloIdA: rrPairFirst.id, soloIdB: soloId });
+        toast('Paired into a team.');
+        rrPairFirst = null;
+        renderRREvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  });
+  const pubBtn = document.getElementById('rr-publish');
+  if (pubBtn) {
+    pubBtn.onclick = async () => {
+      try {
+        await api(`/api/admin/round-robin/events/${id}`, { method: 'PATCH', body: JSON.stringify({ published: !event.published }) });
+        toast(event.published ? 'Night unpublished — sign-ups closed.' : 'Night published — members can join.');
+        renderRREvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const closeBtn = document.getElementById('rr-close-signups');
+  if (closeBtn) {
+    closeBtn.onclick = async () => {
+      try {
+        await api(`/api/admin/round-robin/events/${id}`, { method: 'PATCH', body: JSON.stringify({ published: false }) });
+        toast('Sign-ups closed.');
+        renderRREvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
   if (!rrScoreMatchId) {
-    refreshTimer = setInterval(() => renderRREvent(id), 30000);
+    refreshTimer = setInterval(() => {
+      // Don't wipe a join in progress — if the viewer is typing in the
+      // join box, skip this refresh cycle.
+      const ae = document.activeElement;
+      if (ae && ae.closest && ae.closest('#rr-join-box')) return;
+      renderRREvent(id);
+    }, 30000);
   }
 }
 
