@@ -1112,7 +1112,7 @@ function renderInfoTab(league, registrationOpen) {
       <p><strong>Skill:</strong> ${esc(league.skill)} · <strong>Age:</strong> Any</p>
       <p><strong>Description:</strong> A ladder scramble league at the YMCA in Moultrie, GA. Courts are assigned by standings; players stay on the same court for the whole session.</p>
       <p><strong>Weather Policy:</strong> Play is outdoors on lighted courts. The organizer will announce any weather delay or cancellation.</p>
-      <p><strong>Refund Policy:</strong> League fees are handled through the YMCA (ReClique). Contact the league organizer about refunds.</p>
+      <p><strong>Refund Policy:</strong> Contact the league organizer about refunds.</p>
     </div>
     <div class="card"><h2>Membership &amp; Participation</h2>
       <p>Membership in the Moultrie Pickleball Association is free and requires a DUPR account. Falsifying a DUPR rating, unsportsmanlike conduct, or non-payment of league fees may result in removal from the league.</p>
@@ -2569,7 +2569,7 @@ async function renderJoinPage(leagueId) {
         <label>YMCA membership</label>
         <label class="radio"><input type="radio" name="j-mtype" value="member" checked> YMCA member</label><br>
         <label class="radio"><input type="radio" name="j-mtype" value="non-member"> Non-member</label>
-        <p class="fineprint">Fees are paid on ReClique after you sign up. Nothing is charged here.</p>
+        <p class="fineprint">Nothing is charged here.</p>
         <div class="btnrow"><button class="btn green" id="j-submit">Sign up</button></div>
         <p class="fineprint" id="j-err2"></p>
       </div>
