@@ -17,10 +17,24 @@ const {
   computeStandings,
   computePayouts,
   scoreError,
+  signupCloseAt,
 } = require('../lib/roundrobin');
 
 const router = express.Router();
-const MAX_TEAMS = 24; // 48 players per night
+const MAX_TEAMS = 24; // 48 players per night — the absolute ceiling
+
+// Per-night team cap: the night's own max_teams (set at create), falling
+// back to the global ceiling for nights created before migration 008.
+function nightMaxTeams(event) {
+  return event.max_teams || MAX_TEAMS;
+}
+
+// True once the sign-up deadline has passed (only 'day-3h' nights have
+// one — 'fill' nights close when they fill).
+function signupClosed(event) {
+  const closeAt = signupCloseAt(event);
+  return closeAt != null && Date.now() >= closeAt.getTime();
+}
 
 function asInt(v) {
   const n = Number(v);
@@ -147,6 +161,11 @@ function validDate(s) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')) && !Number.isNaN(Date.parse(s));
 }
 
+function validTime(s) {
+  const m = /^(\d{2}):(\d{2})$/.exec(String(s || ''));
+  return !!m && +m[1] < 24 && +m[2] < 60;
+}
+
 // ---------------------------------------------------------------- public
 
 router.get('/round-robin/payouts', (req, res) => {
@@ -241,6 +260,7 @@ router.post('/round-robin/events/:id/join-team', (req, res) =>
     const event = await getEvent(asInt(req.params.id));
     if (!event) return bad(res, 404, 'Round robin not found.');
     if (joinNotOpen(event)) return bad(res, 409, 'Sign-ups are not open for this night.');
+    if (signupClosed(event)) return bad(res, 409, 'Sign-ups have closed.');
     const personId = asInt(req.body.personId);
     const partnerId = asInt(req.body.partnerPersonId);
     if (personId == null || partnerId == null) return bad(res, 400, 'Pick yourself and a partner.');
@@ -253,8 +273,8 @@ router.post('/round-robin/events/:id/join-team', (req, res) =>
       return bad(res, 409, 'One of you is already on this night.');
     }
     const teams = await getTeams(event.id);
-    if (teams.length >= MAX_TEAMS) {
-      return bad(res, 400, `At most ${MAX_TEAMS} teams (${MAX_TEAMS * 2} players) per night.`);
+    if (teams.length >= nightMaxTeams(event)) {
+      return bad(res, 400, `At most ${nightMaxTeams(event)} teams (${nightMaxTeams(event) * 2} players) per night.`);
     }
     const { rows } = await pool.query(
       'INSERT INTO rr_teams (event_id, player1, player2, person1_id, person2_id) VALUES ($1, $2, $3, $4, $5) RETURNING *',
@@ -269,12 +289,17 @@ router.post('/round-robin/events/:id/join-solo', (req, res) =>
     const event = await getEvent(asInt(req.params.id));
     if (!event) return bad(res, 404, 'Round robin not found.');
     if (joinNotOpen(event)) return bad(res, 409, 'Sign-ups are not open for this night.');
+    if (signupClosed(event)) return bad(res, 409, 'Sign-ups have closed.');
     const personId = asInt(req.body.personId);
     if (personId == null) return bad(res, 400, 'Pick who you are.');
     const person = await getPerson(personId);
     if (!person) return bad(res, 404, 'Person not found.');
     if (await personOnNight(event.id, personId)) {
       return bad(res, 409, 'You are already on this night.');
+    }
+    const teams = await getTeams(event.id);
+    if (teams.length >= nightMaxTeams(event)) {
+      return bad(res, 400, `At most ${nightMaxTeams(event)} teams (${nightMaxTeams(event) * 2} players) per night.`);
     }
     let rows;
     try {
@@ -325,16 +350,30 @@ router.post('/admin/round-robin/events', auth.requireAdmin, (req, res) =>
     if (!name) return bad(res, 400, 'Give the night a name.');
     if (name.length > 100) return bad(res, 400, 'Name is too long.');
     if (!validDate(req.body.event_date)) return bad(res, 400, 'Pick a valid date.');
-    const kind = req.body.kind === 'money' ? 'money' : 'charity';
+    // Money Ball is the default kind (the create card shows it picked).
+    const kind = req.body.kind === 'charity' ? 'charity' : 'money';
     const feeCents = kind === 'money' ? asInt(req.body.fee_cents) : 0;
     if (kind === 'money' && (feeCents == null || feeCents < 0 || feeCents > 100000)) {
       return bad(res, 400, 'Entry fee must be between $0 and $1,000 per person.');
     }
     const payout = payoutById(req.body.payout).id;
+    let startTime = '18:30';
+    if (req.body.start_time != null) {
+      if (!validTime(req.body.start_time)) return bad(res, 400, 'Pick a valid start time.');
+      startTime = String(req.body.start_time).slice(0, 5);
+    }
+    const maxTeams = req.body.max_teams != null ? asInt(req.body.max_teams) : 6;
+    if (maxTeams == null || maxTeams < 2 || maxTeams > MAX_TEAMS) {
+      return bad(res, 400, `Max teams must be between 2 and ${MAX_TEAMS}.`);
+    }
+    const signupClose = req.body.signup_close === 'fill' ? 'fill' : 'day-3h';
+    // Published by default: the create card opens with Published ✓, so
+    // members see the night as soon as it is created.
+    const published = req.body.published != null ? Boolean(req.body.published) : true;
     const { rows } = await pool.query(
-      `INSERT INTO rr_events (name, event_date, kind, fee_cents, payout)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [name, req.body.event_date, kind, feeCents || 0, payout]
+      `INSERT INTO rr_events (name, event_date, kind, fee_cents, payout, start_time, max_teams, signup_close, published)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [name, req.body.event_date, kind, feeCents || 0, payout, startTime, maxTeams, signupClose, published]
     );
     res.json({ ok: true, event: rows[0] });
   }, req, res)
@@ -364,10 +403,23 @@ router.patch('/admin/round-robin/events/:id', auth.requireAdmin, (req, res) =>
     }
     const payout = req.body.payout != null ? payoutById(req.body.payout).id : event.payout;
     const published = req.body.published != null ? Boolean(req.body.published) : event.published;
+    let startTime = event.start_time ? String(event.start_time).slice(0, 5) : '18:30';
+    if (req.body.start_time != null) {
+      if (!validTime(req.body.start_time)) return bad(res, 400, 'Pick a valid start time.');
+      startTime = String(req.body.start_time).slice(0, 5);
+    }
+    const maxTeams = req.body.max_teams != null ? asInt(req.body.max_teams) : event.max_teams || 6;
+    if (maxTeams == null || maxTeams < 2 || maxTeams > MAX_TEAMS) {
+      return bad(res, 400, `Max teams must be between 2 and ${MAX_TEAMS}.`);
+    }
+    const signupClose =
+      req.body.signup_close === 'fill' || req.body.signup_close === 'day-3h'
+        ? req.body.signup_close
+        : event.signup_close || 'day-3h';
     const { rows } = await pool.query(
-      `UPDATE rr_events SET name = $1, event_date = $2, kind = $3, fee_cents = $4, payout = $5, published = $6
-       WHERE id = $7 RETURNING *`,
-      [name, req.body.event_date || event.event_date, kind, feeCents || 0, payout, published, event.id]
+      `UPDATE rr_events SET name = $1, event_date = $2, kind = $3, fee_cents = $4, payout = $5, published = $6, start_time = $7, max_teams = $8, signup_close = $9
+       WHERE id = $10 RETURNING *`,
+      [name, req.body.event_date || event.event_date, kind, feeCents || 0, payout, published, startTime, maxTeams, signupClose, event.id]
     );
     res.json({ ok: true, event: rows[0] });
   }, req, res)
@@ -390,8 +442,8 @@ router.post('/admin/round-robin/events/:id/teams', auth.requireAdmin, (req, res)
       return bad(res, 409, 'Teams can only be added while the night is in setup.');
     }
     const teams = await getTeams(event.id);
-    if (teams.length >= MAX_TEAMS) {
-      return bad(res, 400, `At most ${MAX_TEAMS} teams (${MAX_TEAMS * 2} players) per night.`);
+    if (teams.length >= nightMaxTeams(event)) {
+      return bad(res, 400, `At most ${nightMaxTeams(event)} teams (${nightMaxTeams(event) * 2} players) per night.`);
     }
     const player1 = String(req.body.player1 || '').trim();
     const player2 = String(req.body.player2 || '').trim();
@@ -449,8 +501,8 @@ router.post('/admin/round-robin/events/:id/pair', auth.requireAdmin, (req, res) 
       return bad(res, 400, 'The two players on a team must be different people.');
     }
     const teams = await getTeams(event.id);
-    if (teams.length >= MAX_TEAMS) {
-      return bad(res, 400, `At most ${MAX_TEAMS} teams (${MAX_TEAMS * 2} players) per night.`);
+    if (teams.length >= nightMaxTeams(event)) {
+      return bad(res, 400, `At most ${nightMaxTeams(event)} teams (${nightMaxTeams(event) * 2} players) per night.`);
     }
     await pool.query('BEGIN');
     try {
