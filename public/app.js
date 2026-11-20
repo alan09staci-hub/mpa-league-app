@@ -1667,7 +1667,7 @@ async function renderAdminBody(leagues, league) {
   // leagues live this used to read "Pick a league above.")
   const { members } = await api('/api/admin/members');
   membersHtml = members.map((m) => `
-    <div class="person-row" data-mid="${m.id}"><span class="who"><span class="nm">${esc(m.name)}</span>
+    <div class="person-row" data-mid="${m.id}"><span class="who"><span class="nm${m.is_admin ? ' admin-name' : ''}">${esc(m.name)}${m.is_admin ? ' <span class="admin-badge">ADMIN</span>' : ''}</span>
       <div class="fp">${m.self_rated ? `Self-rated ${m.dupr_rating ?? ''}` : `DUPR ${esc(m.dupr_id || '—')} · ${m.dupr_rating ?? ''}`}${m.leagues && m.leagues.length ? ` · Leagues: ${m.leagues.map(esc).join(', ')}` : ''}</div>
       <div class="fp">${esc(m.email || '')}${m.email && m.phone ? ' · ' : ''}${esc(m.phone || '')} · joined ${fmtDateShort(m.joined_at)}</div></span>
       <span class="rowbtns">
@@ -2098,6 +2098,8 @@ async function renderAdminBody(leagues, league) {
           <div><label>Singles rating</label><input type="number" step="0.001" id="me-singles" value="${m.singles_rating ?? ''}"></div>
           <div><label>Skinny Singles rating</label><input type="number" step="0.001" id="me-skinny" value="${m.skinny_rating ?? ''}"></div>
         </div>
+        <label><input type="checkbox" id="me-admin" ${m.is_admin ? 'checked' : ''}> Make admin</label>
+        <p class="fineprint">Admins show their name in red with an ADMIN badge on the Members list.</p>
         <div class="btnrow"><button class="btn small" id="me-save">Save member</button></div>
         <p class="fineprint" id="me-err"></p></div>`;
       document.getElementById('me-save').onclick = async () => {
@@ -2124,6 +2126,7 @@ async function renderAdminBody(leagues, league) {
               handed: document.getElementById('me-handed').value || null,
               singlesRating: document.getElementById('me-singles').value ? +document.getElementById('me-singles').value : null,
               skinnyRating: document.getElementById('me-skinny').value ? +document.getElementById('me-skinny').value : null,
+              isAdmin: document.getElementById('me-admin').checked,
             }),
           });
           toast('Member saved.');

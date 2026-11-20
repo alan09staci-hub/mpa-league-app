@@ -537,6 +537,7 @@ router.patch('/admin/members/:id', auth.requireAdmin, (req, res) =>
     const handed = cleanStr(req.body.handed, 20);
     const singlesRating = cleanRating(req.body.singlesRating);
     const skinnyRating = cleanRating(req.body.skinnyRating);
+    const isAdmin = req.body.isAdmin === true ? true : req.body.isAdmin === false ? false : null;
     const idErr = duprIdError(duprId, false);
     if (idErr) throw err(400, idErr);
     if (duprProfileUrl && !/^https:\/\//i.test(duprProfileUrl)) {
@@ -550,10 +551,11 @@ router.patch('/admin/members/:id', auth.requireAdmin, (req, res) =>
          nickname = COALESCE($11, nickname), gender = COALESCE($12, gender),
          height = COALESCE($13, height), handed = COALESCE($14, handed),
          singles_rating = COALESCE($15, singles_rating), skinny_rating = COALESCE($16, skinny_rating),
-         self_rated = CASE WHEN $4 IS NOT NULL THEN FALSE ELSE self_rated END
+         self_rated = CASE WHEN $4 IS NOT NULL THEN FALSE ELSE self_rated END,
+         is_admin = COALESCE($17, is_admin)
        WHERE id = $1`,
       [id, email, phone, duprId, duprRating, duprProfileUrl, photoUrl, resides, age, country,
-       nickname, gender, height, handed, singlesRating, skinnyRating]
+       nickname, gender, height, handed, singlesRating, skinnyRating, isAdmin]
     );
     if (m.person_id) {
       await pool.query(
