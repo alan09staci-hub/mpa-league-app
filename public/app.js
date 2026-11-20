@@ -323,10 +323,10 @@ async function renderHome() {
     ]);
     document.getElementById('stats').innerHTML = `
       <div class="stat-row">
-        <span class="stat stat-members"><strong>${members.length}</strong> Members</span>
-        <span class="stat stat-tournaments"><strong>0</strong> Tournaments</span>
-        <span class="stat stat-leagues"><strong>${leagues.length}</strong> Leagues</span>
-        <span class="stat stat-teams"><strong>0</strong> Team Leagues</span>
+        <span class="stat"><strong>${members.length}</strong> Members</span>
+        <span class="stat"><strong>0</strong> Tournaments</span>
+        <span class="stat"><strong>${leagues.length}</strong> Leagues</span>
+        <span class="stat"><strong>0</strong> Team Leagues</span>
       </div>
       <div class="card"><strong>Members</strong> — ${members.length} free MPA member(s).
         <div class="btnrow"><a class="btn secondary small" href="#/members">Open Members directory</a></div></div>
@@ -407,10 +407,10 @@ async function renderLanding(id, mine) {
       <h1>Your league</h1>
       <p class="muted">Hi ${esc(first)} — here are the leagues you are part of.</p>
       <div class="stat-row">
-        <span class="stat"><strong>${members.length}</strong> Members</span>
-        <span class="stat"><strong>0</strong> Tournaments</span>
-        <span class="stat"><strong>${leagues.length}</strong> Leagues</span>
-        <span class="stat"><strong>0</strong> Team Leagues</span>
+        <span class="stat stat-members"><strong>${members.length}</strong> Members</span>
+        <span class="stat stat-tournaments"><strong>0</strong> Tournaments</span>
+        <span class="stat stat-leagues"><strong>${leagues.length}</strong> Leagues</span>
+        <span class="stat stat-teams"><strong>0</strong> Team Leagues</span>
       </div>
       <div id="myLeagueCards">${mineFull.map(leagueCardHtml).join('') || '<p class="muted">You are not in a league yet.</p>'}</div>
       ${newSeasons.length ? `<h2>A new season is open</h2>
