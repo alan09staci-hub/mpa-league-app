@@ -1479,6 +1479,8 @@ async function renderAdmin() {
   const me = await api('/api/admin/me').catch(() => ({ admin: false, passcodeConfigured: false }));
   if (!me.admin) {
     app.innerHTML = `
+      <div class="admin-watermark" aria-hidden="true"></div>
+      <div class="admin-view">
       <h1>Admin</h1>
       <p class="muted">ADMIN ONLY — enter the Admin passcode.</p>
       ${me.passcodeConfigured ? '' : '<div class="banner warn">No Admin passcode is configured on this server yet. Set ADMIN_PASSCODE in the environment.</div>'}
@@ -1487,7 +1489,7 @@ async function renderAdmin() {
         <input type="password" id="passcode" autocomplete="current-password" placeholder="Passcode">
         <div class="btnrow"><button class="btn" id="loginBtn">Sign in</button></div>
         <p class="fineprint" id="loginErr"></p>
-      </div>`;
+      </div></div>`;
     document.getElementById('loginBtn').onclick = async () => {
       const passcode = document.getElementById('passcode').value;
       try {
@@ -1509,12 +1511,14 @@ async function renderAdmin() {
   if (!adminLeagueId && leagues.length) adminLeagueId = leagues[0].id;
   const league = leagues.find((l) => l.id === adminLeagueId);
   app.innerHTML = `
+    <div class="admin-watermark" aria-hidden="true"></div>
+    <div class="admin-view">
     <h1>Admin</h1><p class="muted">ADMIN ONLY</p>
     <div class="btnrow"><button class="btn secondary small" id="logoutBtn">Sign out</button><a class="btn secondary small" href="#/roundrobin">Round Robin</a></div>
     <div class="league-tabs">
       ${leagues.map((l) => `<button data-lid="${l.id}" class="${l.id === adminLeagueId ? 'active' : ''}">${esc(l.name)}</button>`).join('')}
     </div>
-    <div id="adminBody"></div>`;
+    <div id="adminBody"></div></div>`;
   document.getElementById('logoutBtn').onclick = async () => {
     await post('/api/admin/logout', {});
     syncAdminLink();
@@ -1528,7 +1532,7 @@ async function renderAdmin() {
 
 function section(key, title, desc, innerHtml) {
   const open = !!adminSections[key];
-  return `<div class="admin-section">
+  return `<div class="admin-section sec-${key}">
     <button class="head" data-sec="${key}">
       <span><span class="t">${title}</span><br><span class="d">${desc}</span></span>
       <span class="chev">${open ? '▾' : '▸'}</span>

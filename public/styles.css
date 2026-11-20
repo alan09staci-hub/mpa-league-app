@@ -231,11 +231,25 @@ table.standings tr.you td { background: #fff8e1; }
 
 /* ---------- admin ---------- */
 .admin-section { background: #fff; border: 1px solid var(--line); border-radius: 12px; margin: 10px 0; overflow: hidden; }
-.admin-section > button.head { width: 100%; background: none; border: 0; text-align: left; padding: 13px 14px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.admin-section > button.head { width: 100%; background: none; border: 0; text-align: left; padding: 13px 14px; display: flex; justify-content: space-between; align-items: center; gap: 10px; color: #fff; }
 .admin-section .head .t { font-weight: 800; }
-.admin-section .head .d { font-size: 12px; color: var(--grey); font-weight: 400; }
+.admin-section .head .d { font-size: 12px; font-weight: 400; opacity: .85; }
 .admin-section .body { padding: 0 14px 14px; border-top: 1px solid #f0eee9; }
-.admin-section .chev { color: var(--grey); }
+.admin-section .chev { opacity: .85; }
+/* colored section headers (league-colors scheme) */
+.admin-section.sec-announce > button.head { background: var(--yellow); color: var(--black); }
+.admin-section.sec-create > button.head { background: #2f7fe0; }
+.admin-section.sec-registration > button.head { background: #22a04a; }
+.admin-section.sec-registrations > button.head { background: #f7c6dd; color: var(--black); }
+.admin-section.sec-members > button.head { background: #5a5a5a; }
+.admin-section.sec-players > button.head { background: var(--black); }
+.admin-section.sec-penalties > button.head { background: #d92b2b; }
+.admin-section.sec-tools > button.head { background: #2f7fe0; }
+.admin-section.sec-delete > button.head { background: #d92b2b; }
+.admin-section.sec-roundrobin > button.head { background: #22a04a; }
+/* logo watermark, Admin view only (rendered by renderAdmin) */
+.admin-watermark { position: fixed; inset: 0; z-index: 0; background: url('/mpa-logo.webp') center / cover no-repeat; opacity: .2; pointer-events: none; }
+.admin-view { position: relative; z-index: 1; }
 .league-tabs { display: flex; gap: 6px; overflow-x: auto; margin: 10px 0; }
 .league-tabs button { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 7px 12px; white-space: nowrap; font-weight: 600; }
 .league-tabs button.active { background: var(--black); color: #fff; }
