@@ -409,6 +409,12 @@ router.post('/admin/login', (req, res) =>
     }
     await auth.clearLoginFailures(personId).catch(() => {});
     const token = await auth.issueToken(personId);
+    // Log the sign-in for the Admin activity feed. A logging failure must
+    // never break a sign-in — swallow it (console only).
+    await pool.query(
+      'INSERT INTO admin_activity (person_id, action) VALUES ($1, $2)',
+      [personId, 'sign-in']
+    ).catch((e) => console.error('admin_activity log failed', e));
     res.setHeader(
       'Set-Cookie',
       `mpa_admin=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${12 * 3600}`
@@ -488,6 +494,19 @@ router.delete('/admin/passcodes/:personId', auth.requireAdmin, (req, res) =>
     if (!personId) return res.status(400).json({ error: 'Pick an admin.' });
     await pool.query('DELETE FROM admin_passcodes WHERE person_id = $1', [personId]);
     res.json({ ok: true });
+  }, req, res)
+);
+
+// ---- admin activity (sign-ins; Admin-only) ----
+
+router.get('/admin/activity', auth.requireAdmin, (req, res) =>
+  handle(async () => {
+    const { rows } = await pool.query(
+      `SELECT a.id, a.person_id, a.action, a.detail, a.created_at, p.name
+         FROM admin_activity a LEFT JOIN people p ON p.id = a.person_id
+        ORDER BY a.created_at DESC, a.id DESC LIMIT 50`
+    );
+    res.json({ activity: rows });
   }, req, res)
 );
 

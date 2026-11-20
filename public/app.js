@@ -102,6 +102,11 @@ function fmtTimeShort(iso) {
   const d = new Date(iso);
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
+// Activity times render in the league timezone (America/New_York).
+function fmtActivityTime(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
 function fmtClock(t) {
   const parts = String(t || '').split(':');
   const h = Number(parts[0]);
@@ -1598,6 +1603,16 @@ function section(key, title, desc, innerHtml) {
   </div>`;
 }
 
+// One row per admin activity entry: "{Name} signed in · {date/time}".
+// The table only holds sign-ins in this build; any future action label
+// renders as-is instead of "signed in".
+function activityRowsHtml(entries) {
+  if (!entries || !entries.length) return '<p class="muted">No admin sign-ins yet.</p>';
+  return entries.map((e) => `
+    <div class="person-row"><span class="who"><span class="nm">${esc(e.name || 'Admin')}</span>
+      <div class="fp">${e.action === 'sign-in' ? 'signed in' : esc(e.action)} · ${esc(fmtActivityTime(e.created_at))}</div></span></div>`).join('');
+}
+
 async function renderAdminBody(leagues, league) {
   const body = document.getElementById('adminBody');
 
@@ -1712,6 +1727,10 @@ async function renderAdminBody(leagues, league) {
         ${a.has_passcode ? `<button class="btn secondary small" data-pc-del="${a.person_id}">Remove</button>` : ''}
       </span></div>`).join('') || '<p class="muted">No admins flagged yet.</p>'}
     <p class="fineprint" id="pc-msg"></p>`;
+
+  // ---- admin activity (sign-ins; refreshes every 30 seconds below) ----
+  const { activity } = await api('/api/admin/activity');
+  const activityHtml = `<div id="admin-activity-list">${activityRowsHtml(activity)}</div>`;
 
   if (league) {
     const l = await api(`/api/leagues/${league.id}`);
@@ -1844,6 +1863,7 @@ async function renderAdminBody(leagues, league) {
     section('registrations', 'Registrations', 'People who signed up: confirm them, waive a fee, or add them to a league.', regsHtml) +
     section('members', 'Members', 'Free MPA member directory, with DUPR ratings and an Edit button per member.', membersHtml) +
     section('passcodes', 'Admin passcodes', 'Each admin signs in with their own passcode — set one, change one, or remove one.', passcodesHtml) +
+    section('activity', 'Admin activity', 'Who signed in, and when. Refreshes every 30 seconds while you are on this page.', activityHtml) +
     section('players', 'Players', 'The league roster: add, edit, or remove players.', playersHtml) +
     section('penalties', 'Standings penalties', 'Miss penalties and Admin adjustments per player.', penaltiesHtml) +
     section('tools', 'Game day tools', 'Finish a game day, build the schedule, print the court sheet, and move a game day.', toolsHtml) +
@@ -2444,6 +2464,21 @@ async function renderAdminBody(leagues, league) {
       } catch (e) { out.innerHTML = `<div class="banner warn">${esc(e.message)}</div>`; }
     };
   }
+
+  // ---- admin activity: refresh every 30 seconds while on the Admin page ----
+  // Only the activity list re-renders, so typing in a passcode box (or
+  // anything else on the page) is never disturbed. render() clears this
+  // interval on route change, as it does for the game-day refresh. If the
+  // section is closed the list is not in the DOM and the cycle is skipped.
+  clearInterval(refreshTimer);
+  refreshTimer = setInterval(async () => {
+    const list = document.getElementById('admin-activity-list');
+    if (!list) return;
+    try {
+      const { activity: fresh } = await api('/api/admin/activity');
+      list.innerHTML = activityRowsHtml(fresh);
+    } catch { /* poll quietly fails; the next cycle retries */ }
+  }, 30000);
 }
 
 // ---------- announce drafts (client-side; nothing is sent) ----------
