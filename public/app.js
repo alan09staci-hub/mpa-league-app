@@ -1624,6 +1624,8 @@ async function renderAdminBody(leagues, league) {
 
   // ---- create a league (with per-week date editing) ----
   const createHtml = `
+    <div class="rr-create-card">
+      <h3>CREATE A LEAGUE <span class="rr-admin-badge">ADMIN</span></h3>
     <label>League Name</label><input type="text" id="cl-name" placeholder="e.g. Advanced 2026">
     <div class="field-row">
       <div><label>Type</label><select id="cl-type">
@@ -1645,7 +1647,7 @@ async function renderAdminBody(leagues, league) {
       </select></div>
       <div><label>Time</label><select id="cl-time">
         <option>08:30</option><option>09:00</option><option>17:00</option><option selected>18:30</option><option>19:00</option>
-      </select></div>
+      </select><p class="fineprint">YMCA, 601 26th Ave SE, Moultrie, GA 31768</p></div>
     </div>
     <div class="field-row">
       <div><label>Season start</label><input type="date" id="cl-start"></div>
@@ -1653,12 +1655,13 @@ async function renderAdminBody(leagues, league) {
     </div>
     <div class="field-row">
       <div><label>Season</label><select id="cl-season"><option value="">Not set</option><option>Winter 2026</option><option>Spring 2027</option><option>Summer 2027</option><option>Fall 2027</option></select></div>
-      <div><label>Max players</label><input type="number" id="cl-max" value="36" min="4" max="36"></div>
+      <div><label>Max players</label><input type="number" id="cl-max" value="36" min="4" max="36"><p class="fineprint">Max 36 players, max 6 courts.</p></div>
     </div>
     <div class="btnrow"><button class="btn secondary small" id="cl-gen-dates">Generate the 8 weekly dates</button></div>
     <div id="cl-dates"><p class="fineprint">Pick the start date and day above, then generate the 8 weekly game days. Each week's date can be edited — move a week that falls on a holiday or during school vacation.</p></div>
     <div class="btnrow"><button class="btn" id="cl-create">Create league</button></div>
     <p class="fineprint" id="cl-err"></p>
+    </div>
     <h3>Edit an existing league</h3>
     <label>League</label><select id="el-league">${leagues.map((l) => `<option value="${l.id}" ${league && l.id === league.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select>
     <label>League Name</label><input type="text" id="el-name">

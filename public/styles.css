@@ -188,6 +188,7 @@ table.standings tr.you td { background: #fff8e1; }
 .rr-admin-badge { background: var(--yellow); color: var(--black); font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 999px; vertical-align: middle; letter-spacing: 1px; }
 .rr-publish-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 14px 0; }
 .rr-create-card .btn.rr-publish-btn { background: #2a2a2a; color: #fff; border: 1px solid #777; }
+.rr-create-card .btn.secondary { background: #2a2a2a; color: #fff; border: 1px solid #777; }
 .rr-publish-note { color: #7ee2a0; font-weight: 700; }
 .rr-publish-note.off { color: #b9b9b9; }
 
