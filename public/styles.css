@@ -261,6 +261,7 @@ table.standings tr.you td { background: #fff8e1; }
 .landing-view #myLeagueCards > p.muted { color: var(--black); font-weight: 700; }
 .landing-view .card > h2 { font-weight: 800; color: var(--black); }
 .landing-view .card > p.muted.small { color: var(--black); font-weight: 700; }
+.landing-view .gl-phone .muted { color: var(--black); font-weight: 700; }
 .landing-view .stat { color: var(--black); font-weight: 700; }
 .landing-view .stat strong { font-weight: 800; }
 .landing-view .stat-members { border-top: 4px solid var(--yellow-dark); }

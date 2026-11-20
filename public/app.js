@@ -252,12 +252,22 @@ async function syncCoverSteps(personId) {
 }
 
 // ---------- identity cache ----------
-let myLeaguesCache = null; // { personId, leagues }
+let myLeaguesCache = null; // { personId, leagues, registrations }
+async function myLeaguesFull(personId) {
+  if (myLeaguesCache && myLeaguesCache.personId === personId) return myLeaguesCache;
+  const { leagues, registrations } = await api(`/api/people/${personId}/leagues`);
+  myLeaguesCache = { personId, leagues, registrations: registrations || [] };
+  return myLeaguesCache;
+}
 async function myLeagues(personId) {
-  if (myLeaguesCache && myLeaguesCache.personId === personId) return myLeaguesCache.leagues;
-  const { leagues } = await api(`/api/people/${personId}/leagues`);
-  myLeaguesCache = { personId, leagues };
-  return leagues;
+  return (await myLeaguesFull(personId)).leagues;
+}
+// Registrations for leagues the person has signed up for but is not yet
+// rostered in — the landing page shows these instead of a duplicate Join card.
+async function myPendingRegistrations(personId) {
+  const { leagues, registrations } = await myLeaguesFull(personId);
+  const rostered = new Set(leagues.map((l) => l.id));
+  return (registrations || []).filter((r) => !rostered.has(r.league_id));
 }
 function personName(map, id) { return map.get(id) || '—'; }
 function initials(map, id) {
@@ -399,7 +409,11 @@ async function renderLanding(id, mine) {
     ]);
     const mineIds = new Set(mine.map((l) => l.id));
     const mineFull = leagues.filter((l) => mineIds.has(l.id));
-    const newSeasons = leagues.filter((l) => !mineIds.has(l.id));
+    // Pending signups: signed up but not yet on the roster — show the
+    // signup instead of a duplicate Join card for the same league.
+    const pending = await myPendingRegistrations(id.personId).catch(() => []);
+    const pendingIds = new Set(pending.map((r) => r.league_id));
+    const newSeasons = leagues.filter((l) => !mineIds.has(l.id) && !pendingIds.has(l.id));
     const openNights = (rrEvents || []).filter((e) => e.published && e.status === 'setup');
     app.innerHTML = `
       <div class="landing-watermark" aria-hidden="true"></div>
@@ -413,6 +427,7 @@ async function renderLanding(id, mine) {
         <span class="stat stat-teams"><strong>0</strong> Team Leagues</span>
       </div>
       <div id="myLeagueCards">${mineFull.map(leagueCardHtml).join('') || '<p class="muted">You are not in a league yet.</p>'}</div>
+      ${pending.length ? pending.map((r) => `<div class="card"><strong>You're signed up for ${esc(r.name)}</strong><br><span class="muted small">The organizer will add you to the roster.</span></div>`).join('') : ''}
       ${newSeasons.length ? `<h2>A new season is open</h2>
         ${newSeasons.map((l) => `<div class="card new-season">
           <strong>${esc(l.name)}</strong><br>
@@ -1125,7 +1140,7 @@ function renderInfoTab(league, registrationOpen) {
       <p><strong>Refund Policy:</strong> Contact the league organizer about refunds.</p>
     </div>
     <div class="card"><h2>Membership &amp; Participation</h2>
-      <p>Membership in the Moultrie Pickleball Association is free and requires a DUPR account. Falsifying a DUPR rating, unsportsmanlike conduct, or non-payment of league fees may result in removal from the league.</p>
+      <p>Membership in the Moultrie Pickleball Association is free and requires a DUPR account. Falsifying a DUPR rating or unsportsmanlike conduct may result in removal from the league.</p>
     </div>
     <div class="card"><h2>Session Details</h2>
       <p>Skill: ${esc(league.skill)} · Age: Any · Max Players Per Session: ${league.max_players} · Max Movement Rule: 0.20 · 1st Choice Group Size: 6 · 2nd Choice Group Size: 5</p>
@@ -2611,19 +2626,21 @@ async function renderMembersPage() {
   // A new season reaches existing members as join cards.
   if (id) {
     try {
-      const [{ leagues }, mine] = await Promise.all([
+      const [{ leagues }, mine, pending] = await Promise.all([
         api('/api/leagues'),
         myLeagues(id.personId),
+        myPendingRegistrations(id.personId),
       ]);
       const mineIds = new Set(mine.map((l) => l.id));
-      const open = leagues.filter((l) => !mineIds.has(l.id));
+      const pendingIds = new Set(pending.map((r) => r.league_id));
+      const open = leagues.filter((l) => !mineIds.has(l.id) && !pendingIds.has(l.id));
       const slot = document.getElementById('newSeasonSlot');
-      if (slot && open.length) {
-        slot.innerHTML = `<h2>A new season is open</h2>` + open.map((l) => `<div class="card new-season">
+      if (slot && (open.length || pending.length)) {
+        slot.innerHTML = pending.map((r) => `<div class="card"><strong>You're signed up for ${esc(r.name)}</strong><br><span class="muted small">The organizer will add you to the roster.</span></div>`).join('') + (open.length ? `<h2>A new season is open</h2>` + open.map((l) => `<div class="card new-season">
           <strong>${esc(l.name)}</strong><br>
           <span class="muted small">${esc(l.type)} · ${esc(l.skill)} · ${esc(l.format)} · ${esc(l.day)}s ${esc(fmtClock(l.time))} · ${esc(l.season || 'Season not set')}</span>
           <div class="btnrow"><a class="btn green small" href="#/join/${l.id}">Join this league</a></div>
-        </div>`).join('');
+        </div>`).join('') : '');
       }
     } catch { /* join cards are a bonus — the directory still loads */ }
   }
@@ -2773,6 +2790,7 @@ async function renderJoinPage(leagueId) {
       };
       try {
         const { registration } = await api(`/api/leagues/${lid}/registrations`, { method: 'POST', body: JSON.stringify(body) });
+        myLeaguesCache = null; // new signup is a pending registration — refetch on next view
         setCoverStep('dupr');
         setCoverStep('member');
         setCoverStep('joined');
