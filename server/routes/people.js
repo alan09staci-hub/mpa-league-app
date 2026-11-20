@@ -52,6 +52,25 @@ function cleanRating(v) {
   return n;
 }
 
+// A DUPR ID is exactly 6 letters and numbers (e.g. 7D6WR0). Blank is fine —
+// self-rated members have no DUPR ID yet. Normalizes to uppercase so
+// "pw5jnx" is stored as "PW5JNX".
+function cleanDuprId(v) {
+  if (v == null) return null;
+  const s = String(v).trim().toUpperCase();
+  return s || null;
+}
+
+// Returns an error message when a supplied DUPR ID doesn't match the
+// 6-letters-and-numbers shape, else null. Blank is never an error.
+function duprIdError(v, selfRateHint = true) {
+  if (!v) return null;
+  if (/^[A-Z0-9]{6}$/.test(v)) return null;
+  return selfRateHint
+    ? 'That doesn\'t look like a DUPR ID — it\'s 6 letters and numbers. If you don\'t have one yet, choose \'I\'ll rate myself\' instead.'
+    : 'That doesn\'t look like a DUPR ID — it\'s 6 letters and numbers.';
+}
+
 // Leagues a person is on the roster of (names only).
 async function leaguesOfPerson(client, personId) {
   const { rows } = await client.query(
@@ -138,7 +157,7 @@ router.post('/members', (req, res) =>
     const name = cleanStr(req.body.name);
     const email = cleanStr(req.body.email);
     const phone = cleanStr(req.body.phone);
-    const duprId = cleanStr(req.body.duprId, 50);
+    const duprId = cleanDuprId(req.body.duprId);
     const duprRating = cleanRating(req.body.duprRating);
     const duprProfileUrl = cleanStr(req.body.duprProfileUrl, 500);
     const photoUrl = cleanStr(req.body.photoUrl, 500);
@@ -158,6 +177,8 @@ router.post('/members', (req, res) =>
     if (!name) throw err(400, 'Name is required.');
     if (!email || !email.includes('@')) throw err(400, 'A valid email is required.');
     if (!phone) throw err(400, 'A phone number is required.');
+    const idErr = duprIdError(duprId);
+    if (idErr) throw err(400, idErr);
     const rating = selfRated ? selfRating : duprRating;
     if (selfRated) {
       if (rating == null || rating < 2.5 || rating > 5.0) throw err(400, 'Pick your self-rating (2.5 to 5.0).');
@@ -225,7 +246,7 @@ router.post('/leagues/:id/registrations', (req, res) =>
     if (!open) throw err(409, 'Registration for this league is closed.');
 
     const name = cleanStr(req.body.name);
-    const duprId = cleanStr(req.body.duprId, 50);
+    const duprId = cleanDuprId(req.body.duprId);
     const duprRating = cleanRating(req.body.duprRating);
     const membershipType = req.body.membershipType === 'non-member' ? 'non-member' : 'member';
     const email = cleanStr(req.body.email);
@@ -235,6 +256,8 @@ router.post('/leagues/:id/registrations', (req, res) =>
     const selfRated = req.body.selfRated === true;
     const selfRating = cleanRating(req.body.selfRating);
     if (!name) throw err(400, 'Name is required.');
+    const idErr = duprIdError(duprId);
+    if (idErr) throw err(400, idErr);
     const rating = selfRated ? selfRating : duprRating;
     if (selfRated) {
       if (rating == null || rating < 2.5 || rating > 5.0) throw err(400, 'Pick your self-rating (2.5 to 5.0).');
@@ -414,7 +437,7 @@ router.patch('/people/:id/profile', (req, res) =>
     const p = person[0];
     const email = cleanStr(req.body.email);
     const phone = cleanStr(req.body.phone);
-    const duprId = cleanStr(req.body.duprId, 50);
+    const duprId = cleanDuprId(req.body.duprId);
     const duprRating = cleanRating(req.body.duprRating);
     const duprProfileUrl = cleanStr(req.body.duprProfileUrl, 500);
     const photoUrl = cleanStr(req.body.photoUrl, 500);
@@ -427,6 +450,8 @@ router.patch('/people/:id/profile', (req, res) =>
     const handed = cleanStr(req.body.handed, 20);
     const singlesRating = cleanRating(req.body.singlesRating);
     const skinnyRating = cleanRating(req.body.skinnyRating);
+    const idErr = duprIdError(duprId, false);
+    if (idErr) throw err(400, idErr);
     if (email && !email.includes('@')) throw err(400, 'That email does not look valid.');
     if (duprProfileUrl && !/^https:\/\//i.test(duprProfileUrl)) {
       throw err(400, 'The DUPR profile link must start with https://');
@@ -499,7 +524,7 @@ router.patch('/admin/members/:id', auth.requireAdmin, (req, res) =>
     const m = member[0];
     const email = cleanStr(req.body.email);
     const phone = cleanStr(req.body.phone);
-    const duprId = cleanStr(req.body.duprId, 50);
+    const duprId = cleanDuprId(req.body.duprId);
     const duprRating = cleanRating(req.body.duprRating);
     const duprProfileUrl = cleanStr(req.body.duprProfileUrl, 500);
     const photoUrl = cleanStr(req.body.photoUrl, 500);
@@ -512,6 +537,8 @@ router.patch('/admin/members/:id', auth.requireAdmin, (req, res) =>
     const handed = cleanStr(req.body.handed, 20);
     const singlesRating = cleanRating(req.body.singlesRating);
     const skinnyRating = cleanRating(req.body.skinnyRating);
+    const idErr = duprIdError(duprId, false);
+    if (idErr) throw err(400, idErr);
     if (duprProfileUrl && !/^https:\/\//i.test(duprProfileUrl)) {
       throw err(400, 'The DUPR profile link must start with https://');
     }
