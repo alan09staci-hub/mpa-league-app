@@ -250,6 +250,29 @@ table.standings tr.you td { background: #fff8e1; }
 /* logo watermark, Admin view only (rendered by renderAdmin) */
 .admin-watermark { position: fixed; inset: 0; z-index: 0; background: url('/mpa-logo.webp') center / cover no-repeat; opacity: .2; pointer-events: none; }
 .admin-view { position: relative; z-index: 1; }
+/* Admin heading: bold and dark so it reads over the watermark */
+.admin-view > h1 { font-weight: 800; color: #000; }
+.admin-view > p.muted { color: #000; font-weight: 800; }
+/* landing page: logo watermark + color (scoped to the landing view only) */
+.landing-watermark { position: fixed; inset: 0; z-index: 0; background: url('/mpa-logo.webp') center / cover no-repeat; opacity: .2; pointer-events: none; }
+.landing-view { position: relative; z-index: 1; }
+.landing-view > h1 { font-weight: 800; color: var(--black); }
+.landing-view > p.muted { color: var(--black); font-weight: 700; }
+.landing-view #myLeagueCards > p.muted { color: var(--black); font-weight: 700; }
+.landing-view .card > h2 { font-weight: 800; color: var(--black); }
+.landing-view .card > p.muted.small { color: var(--black); font-weight: 700; }
+.landing-view .stat { color: var(--black); font-weight: 700; }
+.landing-view .stat strong { font-weight: 800; }
+.landing-view .stat-members { border-top: 4px solid var(--yellow-dark); }
+.landing-view .stat-members strong { color: var(--yellow-dark); }
+.landing-view .stat-tournaments { border-top: 4px solid #2f7fe0; }
+.landing-view .stat-tournaments strong { color: #2f7fe0; }
+.landing-view .stat-leagues { border-top: 4px solid var(--green); }
+.landing-view .stat-leagues strong { color: var(--green); }
+.landing-view .stat-teams { border-top: 4px solid #5a5a5a; }
+.landing-view .stat-teams strong { color: #5a5a5a; }
+.landing-btn-members { background: var(--yellow); color: var(--black); font-weight: 800; }
+.landing-btn-leagues { background: #22a04a; color: var(--black); font-weight: 800; }
 .league-tabs { display: flex; gap: 6px; overflow-x: auto; margin: 10px 0; }
 .league-tabs button { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 7px 12px; white-space: nowrap; font-weight: 600; }
 .league-tabs button.active { background: var(--black); color: #fff; }

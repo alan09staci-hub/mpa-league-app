@@ -323,10 +323,10 @@ async function renderHome() {
     ]);
     document.getElementById('stats').innerHTML = `
       <div class="stat-row">
-        <span class="stat"><strong>${members.length}</strong> Members</span>
-        <span class="stat"><strong>0</strong> Tournaments</span>
-        <span class="stat"><strong>${leagues.length}</strong> Leagues</span>
-        <span class="stat"><strong>0</strong> Team Leagues</span>
+        <span class="stat stat-members"><strong>${members.length}</strong> Members</span>
+        <span class="stat stat-tournaments"><strong>0</strong> Tournaments</span>
+        <span class="stat stat-leagues"><strong>${leagues.length}</strong> Leagues</span>
+        <span class="stat stat-teams"><strong>0</strong> Team Leagues</span>
       </div>
       <div class="card"><strong>Members</strong> — ${members.length} free MPA member(s).
         <div class="btnrow"><a class="btn secondary small" href="#/members">Open Members directory</a></div></div>
@@ -402,6 +402,8 @@ async function renderLanding(id, mine) {
     const newSeasons = leagues.filter((l) => !mineIds.has(l.id));
     const openNights = (rrEvents || []).filter((e) => e.published && e.status === 'setup');
     app.innerHTML = `
+      <div class="landing-watermark" aria-hidden="true"></div>
+      <div class="landing-view">
       <h1>Your league</h1>
       <p class="muted">Hi ${esc(first)} — here are the leagues you are part of.</p>
       <div class="stat-row">
@@ -417,7 +419,7 @@ async function renderLanding(id, mine) {
           <span class="muted small">${esc(l.type)} · ${esc(l.skill)} · ${esc(l.format)} · ${esc(l.day)}s ${esc(fmtClock(l.time))} · ${esc(l.season || 'Season not set')}</span>
           <div class="btnrow"><a class="btn green small" href="#/join/${l.id}">Join this league</a></div>
         </div>`).join('')}` : ''}
-      <div class="btnrow"><a class="btn secondary" href="#/members">Members</a><a class="btn secondary" href="#/myleagues">My Leagues</a></div>
+      <div class="btnrow"><a class="btn landing-btn-members" href="#/members">Members</a><a class="btn landing-btn-leagues" href="#/myleagues">My Leagues</a></div>
       ${openNights.length ? `<h2>Round Robin — sign-ups open</h2>
         ${openNights.map((e) => `<div class="card">
           <strong>${esc(e.name)}</strong><br>
@@ -495,7 +497,7 @@ async function renderLanding(id, mine) {
             <li><strong>Sample:</strong> email and phone are never shown here — only the admin sees them.</li>
           </ul>
         </div>
-      </div>` : ''}`;
+      </div>` : ''}</div>`;
     bindFavButtons();
   } catch (e) {
     app.innerHTML = `<div class="banner warn">${esc(e.message)}</div>`;
