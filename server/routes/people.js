@@ -543,6 +543,17 @@ router.patch('/admin/members/:id', auth.requireAdmin, (req, res) =>
     if (duprProfileUrl && !/^https:\/\//i.test(duprProfileUrl)) {
       throw err(400, 'The DUPR profile link must start with https://');
     }
+    // Safety: the last flagged admin cannot be unflagged — with no admin
+    // flagged, nobody could sign in at all, not even with the master
+    // passcode (the sign-in picker lists flagged admins only).
+    if (isAdmin === false && m.is_admin) {
+      const { rows: adminCount } = await pool.query(
+        'SELECT COUNT(*)::int AS n FROM members WHERE is_admin = TRUE'
+      );
+      if (adminCount[0].n <= 1) {
+        throw err(400, 'You can’t remove the last admin — flag someone else as an admin first.');
+      }
+    }
     await pool.query(
       `UPDATE members SET email = COALESCE($2, email), phone = COALESCE($3, phone),
          dupr_id = COALESCE($4, dupr_id), dupr_rating = COALESCE($5, dupr_rating),

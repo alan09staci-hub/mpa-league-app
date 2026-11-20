@@ -247,6 +247,7 @@ table.standings tr.you td { background: #fff8e1; }
 .admin-section.sec-tools > button.head { background: #2f7fe0; }
 .admin-section.sec-delete > button.head { background: #d92b2b; }
 .admin-section.sec-roundrobin > button.head { background: #22a04a; }
+.admin-section.sec-passcodes > button.head { background: #6c5ce7; }
 /* logo watermark, Admin view only (rendered by renderAdmin) */
 .admin-watermark { position: fixed; inset: 0; z-index: 0; background: url('/mpa-logo.webp') center / cover no-repeat; opacity: .2; pointer-events: none; }
 .admin-view { position: relative; z-index: 1; }

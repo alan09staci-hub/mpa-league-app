@@ -365,28 +365,55 @@ router.post('/admin/login', (req, res) =>
     if (!auth.passcodeConfigured()) {
       return res.status(503).json({ error: 'Admin passcode is not configured on this server.' });
     }
-    const ip = auth.clientIp(req);
-    // A lock-table error must not lock Alan out: fail open to the passcode
-    // check, which is the real gate; the lockout is rate-limiting only.
-    const lock = await auth.loginLockStatus(ip).catch(() => ({ locked: false, failedCount: 0 }));
+    const personId = asInt(req.body.personId);
+    if (!personId) {
+      return res.status(400).json({ error: 'Pick an admin to sign in as.' });
+    }
+    // Only a flagged admin can sign in — unflagging someone (Make admin off)
+    // takes their passcode away immediately.
+    const { rows: memberRows } = await pool.query(
+      'SELECT m.person_id, m.name, m.is_admin FROM members m WHERE m.person_id = $1',
+      [personId]
+    );
+    const member = memberRows[0];
+    if (!member || !member.is_admin) {
+      return res.status(401).json({ error: 'This person is not an Admin.' });
+    }
+    // Lockout is per admin (migration 011): one admin's wrong guesses never
+    // lock another admin out. A lock-table error must not lock anyone out:
+    // fail open to the passcode check, which is the real gate; the lockout
+    // is rate-limiting only.
+    const lock = await auth.loginLockStatus(personId).catch(() => ({ locked: false, failedCount: 0 }));
     if (lock.locked) {
       const mins = Math.max(1, Math.ceil((lock.lockedUntil.getTime() - Date.now()) / 60000));
       return res.status(429).json({ error: `Too many wrong passcodes. Try again in ${mins} minute${mins === 1 ? '' : 's'}.` });
     }
-    if (!auth.checkPasscode(req.body.passcode)) {
-      const result = await auth.recordLoginFailure(ip).catch(() => null);
+    const { rows: passRows } = await pool.query(
+      'SELECT passcode_hash FROM admin_passcodes WHERE person_id = $1',
+      [personId]
+    );
+    const verdict = auth.checkAdminPasscode({
+      candidate: req.body.passcode,
+      storedHash: passRows[0] ? passRows[0].passcode_hash : null,
+      isMasterPerson: personId === auth.MASTER_PERSON_ID,
+    });
+    if (verdict === 'not-set') {
+      return res.status(401).json({ error: 'No passcode set for this admin yet — ask an admin to set one.' });
+    }
+    if (verdict !== 'ok') {
+      const result = await auth.recordLoginFailure(personId).catch(() => null);
       if (result && result.lockedUntil) {
         return res.status(429).json({ error: 'Too many wrong passcodes. Try again in 15 minutes.' });
       }
       return res.status(401).json({ error: 'Wrong passcode.' });
     }
-    await auth.clearLoginFailures(ip).catch(() => {});
-    const token = await auth.issueToken();
+    await auth.clearLoginFailures(personId).catch(() => {});
+    const token = await auth.issueToken(personId);
     res.setHeader(
       'Set-Cookie',
       `mpa_admin=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${12 * 3600}`
     );
-    res.json({ ok: true });
+    res.json({ ok: true, name: member.name });
   }, req, res)
 );
 
@@ -397,8 +424,72 @@ router.post('/admin/logout', async (req, res) => {
 });
 
 router.get('/admin/me', async (req, res) => {
-  res.json({ admin: await auth.isAdmin(req), passcodeConfigured: auth.passcodeConfigured() });
+  const identity = await auth.adminIdentity(req).catch(() => null);
+  res.json({
+    admin: await auth.isAdmin(req),
+    passcodeConfigured: auth.passcodeConfigured(),
+    name: identity ? identity.name : null,
+    personId: identity ? identity.personId : null,
+  });
 });
+
+// Public: the names of the flagged admins, for the sign-in picker. Names are
+// public in the member directory already — this exposes nothing new, and
+// never includes passcode status.
+router.get('/admin/list', (req, res) =>
+  handle(async () => {
+    const { rows } = await pool.query(
+      'SELECT person_id, name FROM members WHERE is_admin = TRUE ORDER BY name ASC'
+    );
+    res.json({ admins: rows });
+  }, req, res)
+);
+
+// ---- per-admin passcodes (Admin-only management) ----
+
+router.get('/admin/passcodes', auth.requireAdmin, (req, res) =>
+  handle(async () => {
+    const { rows } = await pool.query(
+      `SELECT m.person_id, m.name,
+              EXISTS (SELECT 1 FROM admin_passcodes p WHERE p.person_id = m.person_id) AS has_passcode
+         FROM members m WHERE m.is_admin = TRUE ORDER BY m.name ASC`
+    );
+    res.json({ admins: rows });
+  }, req, res)
+);
+
+router.post('/admin/passcodes', auth.requireAdmin, (req, res) =>
+  handle(async () => {
+    const personId = asInt(req.body.personId);
+    const passcode = req.body.passcode == null ? '' : String(req.body.passcode);
+    if (!personId) return res.status(400).json({ error: 'Pick an admin.' });
+    if (passcode.length < 4) {
+      return res.status(400).json({ error: 'Passcode must be at least 4 characters.' });
+    }
+    const { rows } = await pool.query(
+      'SELECT person_id FROM members WHERE person_id = $1 AND is_admin = TRUE',
+      [personId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'That person is not an Admin.' });
+    // Only the hash is stored — the plain passcode is never saved or returned.
+    await pool.query(
+      `INSERT INTO admin_passcodes (person_id, passcode_hash, updated_at)
+       VALUES ($1, $2, now())
+       ON CONFLICT (person_id) DO UPDATE SET passcode_hash = $2, updated_at = now()`,
+      [personId, auth.hashPasscode(passcode)]
+    );
+    res.json({ ok: true });
+  }, req, res)
+);
+
+router.delete('/admin/passcodes/:personId', auth.requireAdmin, (req, res) =>
+  handle(async () => {
+    const personId = asInt(req.params.personId);
+    if (!personId) return res.status(400).json({ error: 'Pick an admin.' });
+    await pool.query('DELETE FROM admin_passcodes WHERE person_id = $1', [personId]);
+    res.json({ ok: true });
+  }, req, res)
+);
 
 // ---------------------------------------------------------------- admin
 

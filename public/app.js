@@ -1523,32 +1523,43 @@ async function renderAdmin() {
   clearInterval(refreshTimer);
   const me = await api('/api/admin/me').catch(() => ({ admin: false, passcodeConfigured: false }));
   if (!me.admin) {
+    const list = await api('/api/admin/list').catch(() => ({ admins: [] }));
+    const admins = list.admins || [];
     app.innerHTML = `
       <div class="admin-watermark" aria-hidden="true"></div>
       <div class="admin-view">
       <h1>Admin</h1>
-      <p class="muted">ADMIN ONLY — enter the Admin passcode.</p>
+      <p class="muted">ADMIN ONLY — pick your name and enter your passcode.</p>
       ${me.passcodeConfigured ? '' : '<div class="banner warn">No Admin passcode is configured on this server yet. Set ADMIN_PASSCODE in the environment.</div>'}
       <div class="card">
+        ${admins.length ? `
+        <label>Sign in as</label>
+        <select id="loginAdmin">${admins.map((a) => `<option value="${a.person_id}">${esc(a.name)}</option>`).join('')}</select>
         <label>Admin passcode</label>
         <input type="password" id="passcode" autocomplete="current-password" placeholder="Passcode">
         <div class="btnrow"><button class="btn" id="loginBtn">Sign in</button></div>
         <p class="fineprint" id="loginErr"></p>
+        <p class="fineprint">Each admin has their own passcode. Forgot yours? Ask an admin to set a new one for you.</p>`
+        : '<p class="muted">No admins are flagged yet — flag one in Admin → Members → Edit. (You need to be signed in as Admin to do that.)</p>'}
       </div></div>`;
-    document.getElementById('loginBtn').onclick = async () => {
-      const passcode = document.getElementById('passcode').value;
-      try {
-        await post('/api/admin/login', { passcode });
-        toast('Signed in as Admin.');
-        syncAdminLink();
-        renderAdmin();
-      } catch (e) {
-        document.getElementById('loginErr').textContent = e.message;
-      }
-    };
-    document.getElementById('passcode').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') document.getElementById('loginBtn').click();
-    });
+    const loginBtn = document.getElementById('loginBtn');
+    if (loginBtn) {
+      loginBtn.onclick = async () => {
+        const personId = +document.getElementById('loginAdmin').value;
+        const passcode = document.getElementById('passcode').value;
+        try {
+          const out = await post('/api/admin/login', { personId, passcode });
+          toast(`Signed in as ${out.name || 'Admin'}.`);
+          syncAdminLink();
+          renderAdmin();
+        } catch (e) {
+          document.getElementById('loginErr').textContent = e.message;
+        }
+      };
+      document.getElementById('passcode').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') loginBtn.click();
+      });
+    }
     return;
   }
 
@@ -1559,6 +1570,7 @@ async function renderAdmin() {
     <div class="admin-watermark" aria-hidden="true"></div>
     <div class="admin-view">
     <h1>Admin</h1><p class="muted">ADMIN ONLY</p>
+    <p class="muted">Signed in as <strong>${esc(me.name || 'Admin')}</strong></p>
     <div class="btnrow"><button class="btn secondary small" id="logoutBtn">Sign out</button><a class="btn secondary small" href="#/roundrobin">Round Robin</a></div>
     <div class="league-tabs">
       ${leagues.map((l) => `<button data-lid="${l.id}" class="${l.id === adminLeagueId ? 'active' : ''}">${esc(l.name)}</button>`).join('')}
@@ -1686,6 +1698,21 @@ async function renderAdminBody(leagues, league) {
         <button class="btn secondary small" data-mem-del="${m.id}">Remove</button>
       </span></div>
     <div class="edit-slot" id="mem-edit-${m.id}"></div>`).join('') || '<p class="muted">No free members yet.</p>';
+
+  // ---- admin passcodes (each admin signs in with their own) ----
+  const { admins: passcodeAdmins } = await api('/api/admin/passcodes');
+  const passcodesHtml = `
+    <p class="fineprint">Each admin signs in with their own passcode. Alan's master passcode (the one set in the server) always works for him too. Only the scrambled form of a passcode is ever stored — nobody can look one up. Forgot yours? Another admin sets a new one for you here.</p>
+    ${passcodeAdmins.map((a) => `
+    <div class="person-row"><span class="who"><span class="nm">${esc(a.name)}</span>
+      <div class="fp">${a.has_passcode ? 'Passcode set' : 'No passcode set yet'}</div></span>
+      <span class="rowbtns">
+        <input type="password" id="pc-${a.person_id}" placeholder="New passcode" autocomplete="new-password" style="width:140px">
+        <button class="btn secondary small" data-pc-set="${a.person_id}">${a.has_passcode ? 'Change' : 'Set'}</button>
+        ${a.has_passcode ? `<button class="btn secondary small" data-pc-del="${a.person_id}">Remove</button>` : ''}
+      </span></div>`).join('') || '<p class="muted">No admins flagged yet.</p>'}
+    <p class="fineprint" id="pc-msg"></p>`;
+
   if (league) {
     const l = await api(`/api/leagues/${league.id}`);
     regHtml = `
@@ -1816,6 +1843,7 @@ async function renderAdminBody(leagues, league) {
     section('registration', 'Registration', 'Open or close league sign-ups.', regHtml) +
     section('registrations', 'Registrations', 'People who signed up: confirm them, waive a fee, or add them to a league.', regsHtml) +
     section('members', 'Members', 'Free MPA member directory, with DUPR ratings and an Edit button per member.', membersHtml) +
+    section('passcodes', 'Admin passcodes', 'Each admin signs in with their own passcode — set one, change one, or remove one.', passcodesHtml) +
     section('players', 'Players', 'The league roster: add, edit, or remove players.', playersHtml) +
     section('penalties', 'Standings penalties', 'Miss penalties and Admin adjustments per player.', penaltiesHtml) +
     section('tools', 'Game day tools', 'Finish a game day, build the schedule, print the court sheet, and move a game day.', toolsHtml) +
@@ -1829,6 +1857,34 @@ async function renderAdminBody(leagues, league) {
       const k = b.dataset.sec;
       adminSections[k] = !adminSections[k];
       renderAdminBody(leagues, league);
+    };
+  });
+
+  // ---- admin passcodes: set/change and remove ----
+  document.querySelectorAll('[data-pc-set]').forEach((b) => {
+    b.onclick = async () => {
+      const pid = +b.dataset.pcSet;
+      const input = document.getElementById(`pc-${pid}`);
+      const msg = document.getElementById('pc-msg');
+      const passcode = input.value;
+      if (passcode.length < 4) { msg.textContent = 'Passcode must be at least 4 characters.'; return; }
+      try {
+        await post('/api/admin/passcodes', { personId: pid, passcode });
+        toast('Passcode saved.');
+        renderAdmin();
+      } catch (e) { msg.textContent = e.message; }
+    };
+  });
+  document.querySelectorAll('[data-pc-del]').forEach((b) => {
+    b.onclick = async () => {
+      const pid = +b.dataset.pcDel;
+      const msg = document.getElementById('pc-msg');
+      if (!confirm('Remove this admin’s passcode? They won’t be able to sign in until a new one is set.')) return;
+      try {
+        await api(`/api/admin/passcodes/${pid}`, { method: 'DELETE' });
+        toast('Passcode removed.');
+        renderAdmin();
+      } catch (e) { msg.textContent = e.message; }
     };
   });
 
