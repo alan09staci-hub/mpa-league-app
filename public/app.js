@@ -129,6 +129,20 @@ function skillRangeError(skill, rating, label = 'DUPR rating') {
   if (r < lo || r > hi) return `Your ${label} ${r} is outside this league's skill range (${skill}).`;
   return null;
 }
+// A DUPR ID is exactly 6 letters and numbers (e.g. 7D6WR0). Blank is fine —
+// self-rated members have no DUPR ID yet. Normalizes to uppercase so
+// "pw5jnx" passes and is stored as "PW5JNX".
+function normDuprId(v) {
+  return (v || '').trim().toUpperCase();
+}
+function duprIdError(v, selfRateHint = true) {
+  const id = normDuprId(v);
+  if (!id) return null;
+  if (/^[A-Z0-9]{6}$/.test(id)) return null;
+  return selfRateHint
+    ? 'That doesn\'t look like a DUPR ID — it\'s 6 letters and numbers. If you don\'t have one yet, choose \'I\'ll rate myself\' instead.'
+    : 'That doesn\'t look like a DUPR ID — it\'s 6 letters and numbers.';
+}
 function countdownTo(iso) {
   const ms = new Date(iso) - Date.now();
   if (ms <= 0) return 'now';
@@ -886,7 +900,7 @@ function renderMemberForm(container, onDone) {
       <label class="radio"><input type="radio" name="mf-mode" value="self"> I don't have one yet — I'll rate myself</label>
       <div id="mf-dupr-fields">
         <div class="field-row">
-          <div><label>DUPR ID (required)</label><input type="text" id="mf-dupr"></div>
+          <div><label>DUPR ID (required)</label><input type="text" id="mf-dupr"><p class="fineprint">6 letters and numbers, like 7D6WR0.</p></div>
           <div><label>DUPR doubles rating (required)</label><input type="number" step="0.001" id="mf-rating" placeholder="e.g. 3.643"></div>
         </div>
       </div>
@@ -941,13 +955,16 @@ function renderMemberForm(container, onDone) {
     const err = document.getElementById('mf-err');
     try {
       const mode = document.querySelector('input[name="mf-mode"]:checked')?.value || 'dupr';
-      const duprId = document.getElementById('mf-dupr').value.trim();
+      const duprId = normDuprId(document.getElementById('mf-dupr').value);
       const duprRating = document.getElementById('mf-rating').value ? +document.getElementById('mf-rating').value : null;
       if (mode === 'self') {
         if (mfLevel == null) { err.textContent = 'Pick your level.'; return; }
       } else if (!duprId || duprRating == null) {
         err.textContent = 'A DUPR ID and doubles rating are required — or rate yourself if you do not have a DUPR account yet.';
         return;
+      } else {
+        const idErr = duprIdError(duprId);
+        if (idErr) { err.textContent = idErr; return; }
       }
       const { member } = await api('/api/members', {
         method: 'POST',
@@ -1684,7 +1701,7 @@ async function renderAdminBody(leagues, league) {
       <input type="text" id="ap-name" placeholder="Full name" autocomplete="off">
       <div id="ap-suggest"></div>
       <div class="field-row">
-        <div><label>DUPR ID</label><input type="text" id="ap-dupr"></div>
+        <div><label>DUPR ID</label><input type="text" id="ap-dupr"><p class="fineprint">6 letters and numbers, like 7D6WR0.</p></div>
         <div><label>DUPR doubles rating</label><input type="number" step="0.001" id="ap-rating" placeholder="e.g. 3.643"></div>
       </div>
       <label>DUPR profile link (optional)</label><input type="text" id="ap-profile" placeholder="https://…">
@@ -2057,7 +2074,7 @@ async function renderAdminBody(leagues, league) {
           <div><label>Phone</label><input type="text" id="me-phone" value="${v(m.phone)}"></div>
         </div>
         <div class="field-row">
-          <div><label>DUPR ID</label><input type="text" id="me-dupr" value="${v(m.dupr_id)}"></div>
+          <div><label>DUPR ID</label><input type="text" id="me-dupr" value="${v(m.dupr_id)}"><p class="fineprint">6 letters and numbers, like 7D6WR0.</p></div>
           <div><label>DUPR doubles rating</label><input type="number" step="0.001" id="me-rating" value="${m.dupr_rating ?? ''}"></div>
         </div>
         <label>DUPR profile link</label><input type="text" id="me-profile" value="${v(m.dupr_profile_url)}" placeholder="https://…">
@@ -2085,13 +2102,16 @@ async function renderAdminBody(leagues, league) {
         <p class="fineprint" id="me-err"></p></div>`;
       document.getElementById('me-save').onclick = async () => {
         const err = document.getElementById('me-err');
+        const duprId = normDuprId(document.getElementById('me-dupr').value);
+        const idErr = duprIdError(duprId, false);
+        if (idErr) { err.textContent = idErr; return; }
         try {
           await api(`/api/admin/members/${m.id}`, {
             method: 'PATCH',
             body: JSON.stringify({
               email: document.getElementById('me-email').value.trim() || null,
               phone: document.getElementById('me-phone').value.trim() || null,
-              duprId: document.getElementById('me-dupr').value.trim() || null,
+              duprId: duprId || null,
               duprRating: document.getElementById('me-rating').value ? +document.getElementById('me-rating').value : null,
               duprProfileUrl: document.getElementById('me-profile').value.trim() || null,
               resides: document.getElementById('me-resides').value.trim() || null,
@@ -2155,12 +2175,16 @@ async function renderAdminBody(leagues, league) {
   if (addBtn) {
     addBtn.onclick = async () => {
       const err = document.getElementById('ap-err');
+      if (!pickedPersonId) {
+        const idErr = duprIdError(document.getElementById('ap-dupr').value, false);
+        if (idErr) { err.textContent = idErr; return; }
+      }
       try {
         const payload = pickedPersonId
           ? { personId: pickedPersonId }
           : {
               name: document.getElementById('ap-name').value.trim(),
-              duprId: document.getElementById('ap-dupr').value.trim() || null,
+              duprId: normDuprId(document.getElementById('ap-dupr').value) || null,
               duprRating: document.getElementById('ap-rating').value ? +document.getElementById('ap-rating').value : null,
               duprProfileUrl: document.getElementById('ap-profile').value.trim() || null,
             };
@@ -2188,7 +2212,7 @@ async function renderAdminBody(leagues, league) {
       const v = (x) => (x == null ? '' : esc(x));
       slot.innerHTML = `<div class="card">
         <div class="field-row">
-          <div><label>DUPR ID</label><input type="text" id="pe-dupr" value="${v(p.dupr_id)}"></div>
+          <div><label>DUPR ID</label><input type="text" id="pe-dupr" value="${v(p.dupr_id)}"><p class="fineprint">6 letters and numbers, like 7D6WR0.</p></div>
           <div><label>DUPR doubles rating</label><input type="number" step="0.001" id="pe-rating" value="${p.dupr_rating ?? ''}"></div>
         </div>
         <label>DUPR profile link</label><input type="text" id="pe-profile" value="${v(p.dupr_profile_url)}" placeholder="https://…">
@@ -2196,11 +2220,14 @@ async function renderAdminBody(leagues, league) {
         <p class="fineprint" id="pe-err"></p></div>`;
       document.getElementById('pe-save').onclick = async () => {
         const err = document.getElementById('pe-err');
+        const duprId = normDuprId(document.getElementById('pe-dupr').value);
+        const idErr = duprIdError(duprId, false);
+        if (idErr) { err.textContent = idErr; return; }
         try {
           await api(`/api/admin/leagues/${league.id}/players/${p.person_id}`, {
             method: 'PATCH',
             body: JSON.stringify({
-              duprId: document.getElementById('pe-dupr').value.trim() || null,
+              duprId: duprId || null,
               duprRating: document.getElementById('pe-rating').value ? +document.getElementById('pe-rating').value : null,
               duprProfileUrl: document.getElementById('pe-profile').value.trim() || null,
             }),
@@ -2691,6 +2718,7 @@ async function renderJoinPage(leagueId) {
         <label class="radio"><input type="radio" name="j-mode" value="self" ${selfPrefill ? 'checked' : ''}> I don't have one yet — I'll rate myself</label>
         <div id="j-dupr-fields" style="${selfPrefill ? 'display:none' : ''}">
           <label>DUPR ID</label><input type="text" id="j-dupr" value="${step1Done ? esc(prefill.person.dupr_id) : ''}">
+          <p class="fineprint">6 letters and numbers, like 7D6WR0.</p>
           <label>DUPR doubles rating</label><input type="number" step="0.001" id="j-rating" value="${step1Done && prefill.person.dupr_rating != null ? prefill.person.dupr_rating : ''}" placeholder="e.g. 3.643">
         </div>
         <div id="j-self-fields" style="${selfPrefill ? '' : 'display:none'}">
@@ -2750,9 +2778,12 @@ async function renderJoinPage(leagueId) {
         document.getElementById('j-step2').style.display = '';
         return;
       }
-      const dupr = document.getElementById('j-dupr').value.trim();
+      const dupr = normDuprId(document.getElementById('j-dupr').value);
       const ratingVal = document.getElementById('j-rating').value;
       if (!dupr) { err.textContent = 'Enter your DUPR ID.'; return; }
+      const idErr = duprIdError(dupr);
+      if (idErr) { err.textContent = idErr; return; }
+      document.getElementById('j-dupr').value = dupr;
       if (!ratingVal) { err.textContent = 'Enter your DUPR doubles rating.'; return; }
       const rating = +ratingVal;
       // The league's skill band is the qualifier — checked here and again
@@ -2780,7 +2811,7 @@ async function renderJoinPage(leagueId) {
       const mode = document.querySelector('input[name="j-mode"]:checked')?.value || 'dupr';
       const body = {
         name: document.getElementById('j-name').value.trim(),
-        duprId: mode === 'self' ? null : document.getElementById('j-dupr').value.trim(),
+        duprId: mode === 'self' ? null : normDuprId(document.getElementById('j-dupr').value),
         duprRating: mode === 'self' ? null : (document.getElementById('j-rating').value ? +document.getElementById('j-rating').value : null),
         selfRated: mode === 'self',
         selfRating: mode === 'self' ? selfLevel : null,
@@ -2935,7 +2966,7 @@ async function renderProfile() {
           <div><label>Phone</label><input type="text" id="pf-phone" value="${member ? v(member.phone) : ''}"></div>
         </div>
         <div class="field-row">
-          <div><label>DUPR ID</label><input type="text" id="pf-dupr" value="${v(person.dupr_id)}"></div>
+          <div><label>DUPR ID</label><input type="text" id="pf-dupr" value="${v(person.dupr_id)}"><p class="fineprint">6 letters and numbers, like 7D6WR0.</p></div>
           <div><label>DUPR doubles rating</label><input type="number" step="0.001" id="pf-rating" value="${person.dupr_rating ?? ''}"></div>
         </div>
         <label>DUPR profile link</label><input type="text" id="pf-profile" value="${v(person.dupr_profile_url)}" placeholder="https://…">
@@ -2964,13 +2995,16 @@ async function renderProfile() {
       </div>`;
     document.getElementById('pf-save').onclick = async () => {
       const err = document.getElementById('pf-err');
+      const duprId = normDuprId(document.getElementById('pf-dupr').value);
+      const idErr = duprIdError(duprId, false);
+      if (idErr) { err.textContent = idErr; return; }
       try {
         await api(`/api/people/${id.personId}/profile`, {
           method: 'PATCH',
           body: JSON.stringify({
             email: document.getElementById('pf-email').value.trim() || null,
             phone: document.getElementById('pf-phone').value.trim() || null,
-            duprId: document.getElementById('pf-dupr').value.trim() || null,
+            duprId: duprId || null,
             duprRating: document.getElementById('pf-rating').value ? +document.getElementById('pf-rating').value : null,
             duprProfileUrl: document.getElementById('pf-profile').value.trim() || null,
             resides: document.getElementById('pf-resides').value.trim() || null,
