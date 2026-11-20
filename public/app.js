@@ -1862,17 +1862,17 @@ async function renderAdminBody(leagues, league) {
 
   body.innerHTML = logoHtml +
     section('create', 'Create a league', 'Make a new league, or edit an existing one: name, type, skill, format, day, time, and season dates.', createHtml) +
+    section('announce', 'Announce this league', 'Writes the email and text announcement for a league, with copy buttons.', announceSectionHtml) +
     section('registration', 'Registration', 'Open or close league sign-ups.', regHtml) +
     section('registrations', 'Registrations', 'People who signed up: confirm them, waive a fee, or add them to a league.', regsHtml) +
+    section('players', 'Players', 'The league roster: add, edit, or remove players.', playersHtml) +
     section('members', 'Members', 'Free MPA member directory, with DUPR ratings and an Edit button per member.', membersHtml) +
+    section('tools', 'Game day tools', 'Finish a game day, build the schedule, print the court sheet, and move a game day.', toolsHtml) +
+    section('penalties', 'Standings penalties', 'Miss penalties and Admin adjustments per player.', penaltiesHtml) +
+    section('roundrobin', 'Round Robin', 'Create a one-off round robin night — members join themselves once it is published.', rrCreateHtml) +
     section('passcodes', 'Admin passcodes', 'Each admin signs in with their own passcode — set one, change one, or remove one.', passcodesHtml) +
     section('activity', 'Admin activity', 'Who signed in, and when. Refreshes every 30 seconds while you are on this page.', activityHtml) +
-    section('players', 'Players', 'The league roster: add, edit, or remove players.', playersHtml) +
-    section('penalties', 'Standings penalties', 'Miss penalties and Admin adjustments per player.', penaltiesHtml) +
-    section('tools', 'Game day tools', 'Finish a game day, build the schedule, print the court sheet, and move a game day.', toolsHtml) +
-    section('announce', 'Announce this league', 'Writes the email and text announcement for a league, with copy buttons.', announceSectionHtml) +
-    section('delete', 'Delete a league', 'Wipe a league clean: players, game days, matches, and sign-ups go with it. Members stay.', deleteHtml) +
-    section('roundrobin', 'Round Robin', 'Create a one-off round robin night — members join themselves once it is published.', rrCreateHtml);
+    section('delete', 'Delete a league', 'Wipe a league clean: players, game days, matches, and sign-ups go with it. Members stay.', deleteHtml);
 
 
   body.querySelectorAll('.admin-section > button.head').forEach((b) => {
