@@ -365,9 +365,22 @@ router.post('/admin/login', (req, res) =>
     if (!auth.passcodeConfigured()) {
       return res.status(503).json({ error: 'Admin passcode is not configured on this server.' });
     }
+    const ip = auth.clientIp(req);
+    // A lock-table error must not lock Alan out: fail open to the passcode
+    // check, which is the real gate; the lockout is rate-limiting only.
+    const lock = await auth.loginLockStatus(ip).catch(() => ({ locked: false, failedCount: 0 }));
+    if (lock.locked) {
+      const mins = Math.max(1, Math.ceil((lock.lockedUntil.getTime() - Date.now()) / 60000));
+      return res.status(429).json({ error: `Too many wrong passcodes. Try again in ${mins} minute${mins === 1 ? '' : 's'}.` });
+    }
     if (!auth.checkPasscode(req.body.passcode)) {
+      const result = await auth.recordLoginFailure(ip).catch(() => null);
+      if (result && result.lockedUntil) {
+        return res.status(429).json({ error: 'Too many wrong passcodes. Try again in 15 minutes.' });
+      }
       return res.status(401).json({ error: 'Wrong passcode.' });
     }
+    await auth.clearLoginFailures(ip).catch(() => {});
     const token = await auth.issueToken();
     res.setHeader(
       'Set-Cookie',
