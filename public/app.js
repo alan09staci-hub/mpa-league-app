@@ -111,6 +111,17 @@ function fmtClock(t) {
   const h12 = h % 12 || 12;
   return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
 }
+// Phone numbers display as (xxx) xxx-xxxx no matter how they were typed in.
+// Anything that is not a 10-digit US number (after dropping a leading 1)
+// displays exactly as stored — never mangled. Stored values are untouched.
+function fmtPhone(v) {
+  if (v == null) return '';
+  const digits = String(v).replace(/\D/g, '');
+  let d = digits;
+  if (d.length === 11 && d[0] === '1') d = d.slice(1);
+  if (d.length !== 10) return String(v);
+  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+}
 // Skill-range gate for joining (mirror of server/lib/league.js): the
 // league's skill band is the qualifier. Returns an error message when the
 // rating is outside the band, else null. '50+' is an age band, not a
@@ -1669,7 +1680,7 @@ async function renderAdminBody(leagues, league) {
   membersHtml = members.map((m) => `
     <div class="person-row" data-mid="${m.id}"><span class="who"><span class="nm${m.is_admin ? ' admin-name' : ''}">${esc(m.name)}${m.is_admin ? ' <span class="admin-badge">ADMIN</span>' : ''}</span>
       <div class="fp">${m.self_rated ? `Self-rated ${m.dupr_rating ?? ''}` : `DUPR ${esc(m.dupr_id || '—')} · ${m.dupr_rating ?? ''}`}${m.leagues && m.leagues.length ? ` · Leagues: ${m.leagues.map(esc).join(', ')}` : ''}</div>
-      <div class="fp">${esc(m.email || '')}${m.email && m.phone ? ' · ' : ''}${esc(m.phone || '')} · joined ${fmtDateShort(m.joined_at)}</div></span>
+      <div class="fp">${esc(m.email || '')}${m.email && m.phone ? ' · ' : ''}${esc(fmtPhone(m.phone))} · joined ${fmtDateShort(m.joined_at)}</div></span>
       <span class="rowbtns">
         <button class="btn secondary small" data-mem-edit="${m.id}">Edit</button>
         <button class="btn secondary small" data-mem-del="${m.id}">Remove</button>
@@ -1686,7 +1697,7 @@ async function renderAdminBody(leagues, league) {
     regsHtml = registrations.map((r) => `
       <div class="person-row"><span class="who"><span class="nm">${esc(r.name)}</span>
         <div class="fp">${r.self_rated ? `Self-rated ${r.dupr_rating ?? ''}` : `DUPR ${esc(r.dupr_id || '—')} · ${r.dupr_rating ?? ''}`} · ${r.membership_type === 'member' ? 'YMCA member $20' : 'Non-member $50'} · ${r.status}${r.fee_waived ? ' · <span class="fee-waived">Fee waived</span>' : ''}</div>
-        <div class="fp">${esc(r.email || '')}${r.email && r.phone ? ' · ' : ''}${esc(r.phone || '')}</div></span>
+        <div class="fp">${esc(r.email || '')}${r.email && r.phone ? ' · ' : ''}${esc(fmtPhone(r.phone))}</div></span>
         <span class="rowbtns">
           ${r.status === 'pending' ? `<button class="btn small" data-reg-confirm="${r.id}">Confirm</button>` : ''}
           ${r.status !== 'added' ? `<button class="btn green small" data-reg-add="${r.id}">Add to league</button>` : ''}
