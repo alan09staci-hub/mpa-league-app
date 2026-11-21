@@ -1710,7 +1710,7 @@ async function renderAdminBody(leagues, league) {
   membersHtml = members.map((m) => `
     <div class="person-row" data-mid="${m.id}"><span class="who"><span class="nm${m.is_admin ? ' admin-name' : ''}">${esc(m.name)}${m.is_admin ? ' <span class="admin-badge">ADMIN</span>' : ''}</span>
       <div class="fp">${m.self_rated ? `Self-rated ${m.dupr_rating ?? ''}` : `DUPR ${esc(m.dupr_id || '—')} · ${m.dupr_rating ?? ''}`}${m.leagues && m.leagues.length ? ` · Leagues: ${m.leagues.map(esc).join(', ')}` : ''}</div>
-      <div class="fp">${esc(m.email || '')}${m.email && m.phone ? ' · ' : ''}${esc(fmtPhone(m.phone))} · joined ${fmtDateShort(m.joined_at)}</div></span>
+      <div class="fp">${esc(m.email || '')}${m.email && m.phone ? ' · ' : ''}${esc(fmtPhone(m.phone))} · joined ${fmtDateShort(m.joined_at)}${m.updated_at ? ` · updated ${fmtDateShort(m.updated_at)}` : ''}</div></span>
       <span class="rowbtns">
         <button class="btn secondary small" data-mem-edit="${m.id}">Edit</button>
         <button class="btn secondary small" data-mem-del="${m.id}">Remove</button>
@@ -2159,9 +2159,10 @@ async function renderAdminBody(leagues, league) {
       if (!m) return;
       const v = (x) => (x == null ? '' : esc(x));
       slot.innerHTML = `<div class="card">
+        <p class="fineprint">Member since ${fmtDateShort(m.joined_at)} · Last updated ${m.updated_at ? fmtDateShort(m.updated_at) : '—'}</p>
         <div class="field-row">
           <div><label>Email</label><input type="text" id="me-email" value="${v(m.email)}"></div>
-          <div><label>Phone</label><input type="text" id="me-phone" value="${v(m.phone)}"></div>
+          <div><label>Phone</label><input type="text" id="me-phone" value="${esc(fmtPhone(m.phone))}"></div>
         </div>
         <div class="field-row">
           <div><label>DUPR ID</label><input type="text" id="me-dupr" value="${v(m.dupr_id)}"><p class="fineprint">6 letters and numbers, like 7D6WR0.</p></div>
@@ -2192,6 +2193,10 @@ async function renderAdminBody(leagues, league) {
         <p class="fineprint">Admins show their name in red with an ADMIN badge on the Members list.</p>
         <div class="btnrow"><button class="btn small" id="me-save">Save member</button></div>
         <p class="fineprint" id="me-err"></p></div>`;
+      // Phone formats as (xxx) xxx-xxxx while typing; the save strips it
+      // back to digits, so the stored value stays digits-only.
+      const mePhone = document.getElementById('me-phone');
+      if (mePhone) mePhone.addEventListener('input', () => { mePhone.value = fmtPhone(mePhone.value); });
       document.getElementById('me-save').onclick = async () => {
         const err = document.getElementById('me-err');
         const duprId = normDuprId(document.getElementById('me-dupr').value);
@@ -2202,7 +2207,7 @@ async function renderAdminBody(leagues, league) {
             method: 'PATCH',
             body: JSON.stringify({
               email: document.getElementById('me-email').value.trim() || null,
-              phone: document.getElementById('me-phone').value.trim() || null,
+              phone: document.getElementById('me-phone').value.replace(/\D/g, '') || null,
               duprId: duprId || null,
               duprRating: document.getElementById('me-rating').value ? +document.getElementById('me-rating').value : null,
               duprProfileUrl: document.getElementById('me-profile').value.trim() || null,

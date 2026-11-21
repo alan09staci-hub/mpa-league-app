@@ -507,10 +507,10 @@ router.patch('/people/:id/profile', (req, res) =>
 router.get('/admin/members', auth.requireAdmin, (req, res) =>
   handle(async () => {
     const { rows } = await pool.query(
-      `SELECT m.*, COALESCE((SELECT json_agg(l.name)
+      `SELECT m.*, p.updated_at, COALESCE((SELECT json_agg(l.name)
           FROM player_leagues pl JOIN leagues l ON l.id = pl.league_id
          WHERE pl.person_id = m.person_id), '[]'::json) AS leagues
-         FROM members m ORDER BY m.name ASC`
+         FROM members m LEFT JOIN people p ON p.id = m.person_id ORDER BY m.name ASC`
     );
     res.json({ members: rows });
   }, req, res)
