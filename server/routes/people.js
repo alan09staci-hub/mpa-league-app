@@ -52,6 +52,34 @@ function cleanRating(v) {
   return n;
 }
 
+// Rating history (migration 013): record a rating change, but only when
+// the effective value actually moved. changedBy is 'member' for a My
+// Profile save or 'admin' for an Admin edit. A failed save records
+// nothing — callers record only after their updates succeed.
+async function recordRatingChange(pool, personId, ratingType, oldVal, newVal, changedBy) {
+  const oldN = oldVal == null ? null : Number(oldVal);
+  const newN = newVal == null ? null : Number(newVal);
+  if (oldN === newN) return;
+  await pool.query(
+    `INSERT INTO member_rating_history (person_id, rating_type, old_rating, new_rating, changed_by)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [personId, ratingType, oldN, newN, changedBy]
+  );
+}
+
+// Go-live baseline for a just-created member record: one row per rating
+// the member currently has, so the timeline has a starting point.
+async function seedRatingBaseline(pool, personId, ratings) {
+  for (const [type, val] of [['doubles', ratings.dupr], ['singles', ratings.singles], ['skinny', ratings.skinny]]) {
+    if (val == null) continue;
+    await pool.query(
+      `INSERT INTO member_rating_history (person_id, rating_type, old_rating, new_rating, changed_by)
+       VALUES ($1, $2, NULL, $3, 'system')`,
+      [personId, type, Number(val)]
+    );
+  }
+}
+
 // A DUPR ID is exactly 6 letters and numbers (e.g. 7D6WR0). Blank is fine —
 // self-rated members have no DUPR ID yet. Normalizes to uppercase so
 // "pw5jnx" is stored as "PW5JNX".
@@ -215,6 +243,8 @@ router.post('/members', (req, res) =>
        nickname, gender, height, handed, singlesRating, skinnyRating, selfRated]
     );
     const m = rows[0];
+    // Rating-history baseline so the new member's timeline has a start.
+    await seedRatingBaseline(pool, m.person_id, { dupr: m.dupr_rating, singles: m.singles_rating, skinny: m.skinny_rating });
     res.status(201).json({
       member: {
         id: m.id, person_id: m.person_id, name: m.name, dupr_id: m.dupr_id,
@@ -435,6 +465,11 @@ router.patch('/people/:id/profile', (req, res) =>
     const { rows: person } = await pool.query('SELECT * FROM people WHERE id = $1', [personId]);
     if (!person.length) return res.status(404).json({ error: 'Person not found.' });
     const p = person[0];
+    // Old member ratings, for the rating-history check after the save.
+    const { rows: oldMember } = await pool.query(
+      'SELECT dupr_rating, singles_rating, skinny_rating FROM members WHERE person_id = $1', [personId]
+    );
+    const oldM = oldMember[0] || null;
     const email = cleanStr(req.body.email);
     const phone = cleanStr(req.body.phone);
     const duprId = cleanDuprId(req.body.duprId);
@@ -497,6 +532,19 @@ router.patch('/people/:id/profile', (req, res) =>
          effDuprId ? false : effRating != null]
       );
     }
+    // Rating history: record what actually moved (effective new value vs
+    // old). A roster player with no member record yet gets a baseline
+    // instead, so their timeline has a starting point.
+    const effDupr = duprRating != null ? duprRating : (oldM ? oldM.dupr_rating : p.dupr_rating);
+    const effSingles = singlesRating != null ? singlesRating : (oldM ? oldM.singles_rating : null);
+    const effSkinny = skinnyRating != null ? skinnyRating : (oldM ? oldM.skinny_rating : null);
+    if (oldM) {
+      await recordRatingChange(pool, personId, 'doubles', oldM.dupr_rating, effDupr, 'member');
+      await recordRatingChange(pool, personId, 'singles', oldM.singles_rating, effSingles, 'member');
+      await recordRatingChange(pool, personId, 'skinny', oldM.skinny_rating, effSkinny, 'member');
+    } else {
+      await seedRatingBaseline(pool, personId, { dupr: effDupr, singles: effSingles, skinny: effSkinny });
+    }
     res.json({ ok: true });
   }, req, res)
 );
@@ -507,12 +555,31 @@ router.patch('/people/:id/profile', (req, res) =>
 router.get('/admin/members', auth.requireAdmin, (req, res) =>
   handle(async () => {
     const { rows } = await pool.query(
-      `SELECT m.*, p.updated_at, COALESCE((SELECT json_agg(l.name)
+      `SELECT m.*, p.updated_at,
+         (SELECT COUNT(*)::int FROM member_rating_history h
+           WHERE h.person_id = m.person_id AND h.changed_by <> 'system') AS rating_changes,
+         COALESCE((SELECT json_agg(l.name)
           FROM player_leagues pl JOIN leagues l ON l.id = pl.league_id
          WHERE pl.person_id = m.person_id), '[]'::json) AS leagues
          FROM members m LEFT JOIN people p ON p.id = m.person_id ORDER BY m.name ASC`
     );
     res.json({ members: rows });
+  }, req, res)
+);
+
+// Admin: rating history for one member, newest first. The edit form shows
+// it as a timeline; the baseline ('system') is the go-live starting point.
+router.get('/admin/members/:id/rating-history', auth.requireAdmin, (req, res) =>
+  handle(async () => {
+    const id = asInt(req.params.id);
+    const { rows: member } = await pool.query('SELECT person_id FROM members WHERE id = $1', [id]);
+    if (!member.length) throw err(404, 'Member not found.');
+    const { rows } = await pool.query(
+      `SELECT rating_type, old_rating, new_rating, changed_by, created_at
+         FROM member_rating_history WHERE person_id = $1 ORDER BY created_at DESC, id DESC`,
+      [member[0].person_id]
+    );
+    res.json({ history: rows });
   }, req, res)
 );
 
@@ -576,6 +643,13 @@ router.patch('/admin/members/:id', auth.requireAdmin, (req, res) =>
            updated_at = now() WHERE id = $1`,
         [m.person_id, duprId, duprRating, duprProfileUrl, photoUrl, resides, age, country]
       );
+    }
+    // Rating history: record what actually moved (effective new value vs
+    // the row fetched at the start of this save).
+    if (m.person_id) {
+      await recordRatingChange(pool, m.person_id, 'doubles', m.dupr_rating, duprRating != null ? duprRating : m.dupr_rating, 'admin');
+      await recordRatingChange(pool, m.person_id, 'singles', m.singles_rating, singlesRating != null ? singlesRating : m.singles_rating, 'admin');
+      await recordRatingChange(pool, m.person_id, 'skinny', m.skinny_rating, skinnyRating != null ? skinnyRating : m.skinny_rating, 'admin');
     }
     res.json({ ok: true });
   }, req, res)

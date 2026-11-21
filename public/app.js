@@ -1710,7 +1710,7 @@ async function renderAdminBody(leagues, league) {
   membersHtml = members.map((m) => `
     <div class="person-row" data-mid="${m.id}"><span class="who"><span class="nm${m.is_admin ? ' admin-name' : ''}">${esc(m.name)}${m.is_admin ? ' <span class="admin-badge">ADMIN</span>' : ''}</span>
       <div class="fp">${m.self_rated ? `Self-rated ${m.dupr_rating ?? ''}` : `DUPR ${esc(m.dupr_id || '—')} · ${m.dupr_rating ?? ''}`}${m.leagues && m.leagues.length ? ` · Leagues: ${m.leagues.map(esc).join(', ')}` : ''}</div>
-      <div class="fp">${esc(m.email || '')}${m.email && m.phone ? ' · ' : ''}${esc(fmtPhone(m.phone))} · joined ${fmtDateShort(m.joined_at)}${m.updated_at ? ` · updated ${fmtDateShort(m.updated_at)}` : ''}</div></span>
+      <div class="fp">${esc(m.email || '')}${m.email && m.phone ? ' · ' : ''}${esc(fmtPhone(m.phone))} · joined ${fmtDateShort(m.joined_at)}${m.updated_at ? ` · updated ${fmtDateShort(m.updated_at)}` : ''}${m.rating_changes ? ` · ${m.rating_changes} rating change${m.rating_changes === 1 ? '' : 's'}` : ''}</div></span>
       <span class="rowbtns">
         <button class="btn secondary small" data-mem-edit="${m.id}">Edit</button>
         <button class="btn secondary small" data-mem-del="${m.id}">Remove</button>
@@ -2191,12 +2191,36 @@ async function renderAdminBody(leagues, league) {
         </div>
         <label><input type="checkbox" id="me-admin" ${m.is_admin ? 'checked' : ''}> Make admin</label>
         <p class="fineprint">Admins show their name in red with an ADMIN badge on the Members list.</p>
+        <p class="fineprint" style="margin-top:12px"><strong>Rating history</strong></p>
+        <div id="me-history"><p class="fineprint">Loading rating history…</p></div>
         <div class="btnrow"><button class="btn small" id="me-save">Save member</button></div>
         <p class="fineprint" id="me-err"></p></div>`;
       // Phone formats as (xxx) xxx-xxxx while typing; the save strips it
       // back to digits, so the stored value stays digits-only.
       const mePhone = document.getElementById('me-phone');
       if (mePhone) mePhone.addEventListener('input', () => { mePhone.value = fmtPhone(mePhone.value); });
+    // Rating history timeline, with a filter by rating type. The baseline
+    // ('system') reads as "recorded as X" — it is the go-live starting
+    // point, not a change. Past changes before tracking started are not
+    // recoverable, so the timeline starts there.
+    let meHist = [];
+    let meHistFilter = 'all';
+    const fmtHistR = (r) => (r == null ? '—' : Number(r).toFixed(3));
+    function renderMeHist() {
+      const el = document.getElementById('me-history');
+      if (!el) return;
+      const rows = meHist.filter((h) => meHistFilter === 'all' || h.rating_type === meHistFilter);
+      const typeName = { doubles: 'Doubles', singles: 'Singles', skinny: 'Skinny Singles' };
+      const whoName = { member: 'Member', admin: 'Admin', system: 'Tracking started' };
+      const btn = (f, label) => `<button class="btn secondary small" data-hf="${f}" ${meHistFilter === f ? 'disabled' : ''}>${label}</button>`;
+      el.innerHTML = `<div class="btnrow">${btn('all', 'All')}${btn('doubles', 'Doubles')}${btn('singles', 'Singles')}${btn('skinny', 'Skinny')}</div>` +
+        (rows.length ? rows.map((h) => `<p class="fineprint">${fmtDateShort(h.created_at)} · ${typeName[h.rating_type] || h.rating_type} · ${h.changed_by === 'system' ? `recorded as ${fmtHistR(h.new_rating)}` : `${fmtHistR(h.old_rating)} → ${fmtHistR(h.new_rating)}`} · ${whoName[h.changed_by] || h.changed_by}</p>`).join('') : '<p class="fineprint">No rating changes yet.</p>');
+      el.querySelectorAll('button[data-hf]').forEach((b) => { b.onclick = () => { meHistFilter = b.dataset.hf; renderMeHist(); }; });
+    }
+    api(`/api/admin/members/${m.id}/rating-history`).then((r) => { meHist = r.history || []; renderMeHist(); }).catch(() => {
+      const el = document.getElementById('me-history');
+      if (el) el.innerHTML = '<p class="fineprint">Rating history is not available.</p>';
+    });
       document.getElementById('me-save').onclick = async () => {
         const err = document.getElementById('me-err');
         const duprId = normDuprId(document.getElementById('me-dupr').value);
