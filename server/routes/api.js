@@ -31,6 +31,29 @@ function asInt(v) {
   return Number.isInteger(n) ? n : null;
 }
 
+function err(status, message) {
+  const e = new Error(message);
+  e.status = status;
+  return e;
+}
+
+// A DUPR ID is exactly 6 letters and numbers (e.g. 7D6WR0). Blank is fine —
+// self-rated members have no DUPR ID yet. Same rule as people.js; kept here
+// because people.js does not export its copy.
+function cleanDuprId(v) {
+  if (v == null) return null;
+  const s = String(v).trim().toUpperCase();
+  return s || null;
+}
+
+// Returns an error message when a supplied DUPR ID doesn't match the
+// 6-letters-and-numbers shape, else null. Blank is never an error.
+function duprIdError(v) {
+  if (!v) return null;
+  if (/^[A-Z0-9]{6}$/.test(v)) return null;
+  return 'That doesn\'t look like a DUPR ID — it\'s 6 letters and numbers.';
+}
+
 async function handle(fn, req, res) {
   try {
     await fn(req, res);
@@ -529,9 +552,12 @@ router.post('/admin/leagues/:id/players', auth.requireAdmin, (req, res) =>
       person = rows[0];
       if (!person) return res.status(404).json({ error: 'Person not found.' });
     } else {
+      const duprId = cleanDuprId(req.body.duprId);
+      const idErr = duprIdError(duprId);
+      if (idErr) throw err(400, idErr);
       person = await findOrCreatePerson(pool, {
         name: req.body.name,
-        duprId: req.body.duprId,
+        duprId,
         duprRating: req.body.duprRating,
         duprProfileUrl: req.body.duprProfileUrl,
       });
@@ -552,6 +578,9 @@ router.patch('/admin/leagues/:id/players/:personId', auth.requireAdmin, (req, re
     if (!league) return res.status(404).json({ error: 'League not found.' });
     const personId = asInt(req.params.personId);
     if (req.body.duprId !== undefined || req.body.duprRating !== undefined || req.body.duprProfileUrl !== undefined) {
+      const duprId = req.body.duprId === undefined ? undefined : cleanDuprId(req.body.duprId);
+      const idErr = duprIdError(duprId);
+      if (idErr) throw err(400, idErr);
       await pool.query(
         `UPDATE people SET
            dupr_id = COALESCE($2, dupr_id),
@@ -559,7 +588,7 @@ router.patch('/admin/leagues/:id/players/:personId', auth.requireAdmin, (req, re
            dupr_profile_url = COALESCE($4, dupr_profile_url),
            updated_at = now()
          WHERE id = $1`,
-        [personId, req.body.duprId ?? null, req.body.duprRating ?? null, req.body.duprProfileUrl ?? null]
+        [personId, duprId ?? null, req.body.duprRating ?? null, req.body.duprProfileUrl ?? null]
       );
     }
     if (req.body.adminPenalty !== undefined) {
