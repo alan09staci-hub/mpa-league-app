@@ -1589,7 +1589,7 @@ async function renderAdmin() {
   app.querySelectorAll('.league-tabs button').forEach((b) => {
     b.onclick = () => { adminLeagueId = +b.dataset.lid; renderAdmin(); };
   });
-  renderAdminBody(leagues, league);
+  renderAdminBody(leagues, league, me);
 }
 
 function section(key, title, desc, innerHtml) {
@@ -1613,7 +1613,7 @@ function activityRowsHtml(entries) {
       <div class="fp">${e.action === 'sign-in' ? 'signed in' : esc(e.action)} · ${esc(fmtActivityTime(e.created_at))}</div></span></div>`).join('');
 }
 
-async function renderAdminBody(leagues, league) {
+async function renderAdminBody(leagues, league, me) {
   const body = document.getElementById('adminBody');
 
   // ---- logo color for the current league (follows the league, no picker) ----
@@ -1813,6 +1813,17 @@ async function renderAdminBody(leagues, league) {
       <p class="fineprint">Moving a game day shifts that day and every game day after it by the same amount, so the season stays weekly — if a night is rained out, moving it a week pushes the whole rest of the season back a week.</p>`;
   }
 
+  // ---- custom message: type any text and pick who it goes to ----
+  // Who "Just me" is: the signed-in admin, or the one flagged admin
+  // when the sign-in is a legacy token with no person id.
+  const flaggedAdmins = members.filter((m) => m.is_admin);
+  const mePid = (me && me.personId) || (flaggedAdmins.length === 1 ? flaggedAdmins[0].person_id : null);
+  const cmMembers = members.filter((m) => m.phone).slice().sort((a, b) => a.name.localeCompare(b.name));
+  const cmNoPhone = members.length - cmMembers.length;
+  const cmListHtml = cmMembers.map((m) => `
+      <label style="display:block"><input type="checkbox" class="cm-pick" value="${esc(m.phone)}" data-pid="${m.person_id}" data-me="${m.person_id === mePid ? '1' : '0'}"> ${esc(m.name)}${m.person_id === mePid ? ' (you)' : ''} · ${esc(fmtPhone(m.phone))}</label>`).join('');
+
+  // ---- announce a league (the drafts) ----
  const announceSectionHtml = `
 
     <label>Announce</label>
@@ -1822,7 +1833,23 @@ async function renderAdminBody(leagues, league) {
     <label>League</label>
     <select id="an-league">${leagues.map((l) => `<option value="${l.id}" ${league && l.id === league.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select>
     <div class="btnrow"><button class="btn" id="an-gen">Write the announcement</button></div>
-    <div id="an-out"><p class="fineprint">Picks the league and writes an advertising email and a shorter text version from that league's saved record. Nothing is sent by the app — copy the drafts and send them from your own email or phone.</p></div>`;
+    <div id="an-out"><p class="fineprint">Picks the league and writes an advertising email and a shorter text version from that league's saved record. Nothing is sent by the app — copy the drafts and send them from your own email or phone.</p></div>
+    <div class="card"><h3>Custom message — pick who it goes to</h3>
+      <p class="muted small">Type any message and choose who gets it — just yourself to test it, everyone, or pick names. Nothing is sent by the app; it opens your Messages app with the message filled in and only the people you picked.</p>
+      <label>Message</label>
+      <textarea id="cm-text" rows="4" style="width:100%" placeholder="Type your message here"></textarea>
+      <label>Who gets it</label>
+      <div class="btnrow">
+        <button class="btn secondary small" id="cm-just-me" type="button">Just me</button>
+        <button class="btn secondary small" id="cm-everyone" type="button">Everyone</button>
+        <button class="btn secondary small" id="cm-clear" type="button">Clear</button>
+      </div>
+      <div id="cm-list" style="max-height:220px;overflow-y:auto">${cmListHtml}</div>
+      ${cmNoPhone ? `<p class="fineprint">${cmNoPhone} member${cmNoPhone === 1 ? '' : 's'} ${cmNoPhone === 1 ? 'has' : 'have'} no phone on file and ${cmNoPhone === 1 ? 'is' : 'are'} not listed.</p>` : ''}
+      <p class="fineprint" id="cm-count">0 picked</p>
+      <div class="btnrow"><button class="btn" id="cm-send" type="button">Send by text</button></div>
+      <p class="fineprint" id="cm-msg"></p>
+    </div>`;
 
   // ---- create a round robin night (the preview's Step 1 card) ----
   const rrCreateHtml = `
@@ -1879,7 +1906,7 @@ async function renderAdminBody(leagues, league) {
     b.onclick = () => {
       const k = b.dataset.sec;
       adminSections[k] = !adminSections[k];
-      renderAdminBody(leagues, league);
+      renderAdminBody(leagues, league, me);
     };
   });
 
@@ -2494,6 +2521,36 @@ async function renderAdminBody(leagues, league) {
         }
         wireAnnounceCopy();
       } catch (e) { out.innerHTML = `<div class="banner warn">${esc(e.message)}</div>`; }
+    };
+  }
+
+  // ---- custom message: pick recipients, send by text ----
+  const cmSend = document.getElementById('cm-send');
+  if (cmSend) {
+    const cmPicks = () => Array.from(document.querySelectorAll('.cm-pick'));
+    const cmUpdate = () => {
+      const n = cmPicks().filter((c) => c.checked).length;
+      const el = document.getElementById('cm-count');
+      if (el) el.textContent = `${n} picked`;
+    };
+    cmPicks().forEach((c) => { c.onchange = cmUpdate; });
+    document.getElementById('cm-just-me').onclick = () => {
+      const mine = cmPicks().find((c) => c.dataset.me === '1');
+      cmPicks().forEach((c) => { c.checked = c === mine; });
+      const msg = document.getElementById('cm-msg');
+      if (!mine && msg) msg.textContent = 'Could not tell which member you are — pick your name from the list.';
+      cmUpdate();
+    };
+    document.getElementById('cm-everyone').onclick = () => { cmPicks().forEach((c) => { c.checked = true; }); cmUpdate(); };
+    document.getElementById('cm-clear').onclick = () => { cmPicks().forEach((c) => { c.checked = false; }); cmUpdate(); };
+    cmSend.onclick = () => {
+      const text = document.getElementById('cm-text').value.trim();
+      const phones = cmPicks().filter((c) => c.checked).map((c) => c.value).join(', ');
+      const msg = document.getElementById('cm-msg');
+      if (!text) { if (msg) msg.textContent = 'Type the message first.'; return; }
+      if (!phones) { if (msg) msg.textContent = 'Pick at least one person.'; return; }
+      if (msg) msg.textContent = '';
+      location.href = `sms:${phones.replace(/ /g, '')}?&body=${encodeURIComponent(text)}`;
     };
   }
 
