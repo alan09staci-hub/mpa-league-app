@@ -322,6 +322,8 @@ function route() {
   if (parts[0] === 'join') return renderJoinPage(parts[1] ? +parts[1] : null);
   if (parts[0] === 'roundrobin' && parts[1]) return renderRREvent(+parts[1]);
   if (parts[0] === 'roundrobin') return renderRRList();
+  if (parts[0] === 'bracket' && parts[1]) return renderBrEvent(+parts[1]);
+  if (parts[0] === 'bracket') return renderBrList();
   if (parts[0] === 'myleagues') return renderMyLeagues();
   if (parts[0] === 'dashboard') return renderDashboard();
   if (parts[0] === 'profile') return renderProfile();
@@ -371,7 +373,9 @@ async function renderHome() {
       <div class="card"><strong>Members</strong> — ${members.length} free MPA member(s).
         <div class="btnrow"><a class="btn secondary small" href="#/members">Open Members directory</a></div></div>
       <div class="card"><strong>Round Robin</strong> — one-off charity and money-ball nights with fixed teams, separate from leagues.
-        <div class="btnrow"><a class="btn secondary small" href="#/roundrobin">Open Round Robin</a></div></div>`;
+        <div class="btnrow"><a class="btn secondary small" href="#/roundrobin">Open Round Robin</a></div></div>
+      <div class="card"><strong>Bracket</strong> — one-off double-elimination bracket nights with fixed teams, separate from leagues. Lose twice and you're out.
+        <div class="btnrow"><a class="btn secondary small" href="#/bracket">Open Bracket</a></div></div>`;
     const el = document.getElementById('leagues');
     if (!leagues.length) {
       el.innerHTML = `<div class="card"><p>No leagues yet. An admin can create one from the Admin page.</p></div>`;
@@ -432,10 +436,11 @@ async function renderLanding(id, mine) {
   const first = id.name.split(' ')[0];
   app.innerHTML = `<h1>Your league</h1><p class="muted">Loading…</p>`;
   try {
-    const [{ leagues }, { members }, { events: rrEvents }] = await Promise.all([
+    const [{ leagues }, { members }, { events: rrEvents }, { events: brEvents }] = await Promise.all([
       api('/api/leagues'),
       api('/api/members').catch(() => ({ members: [] })),
       api('/api/round-robin/events').catch(() => ({ events: [] })),
+      api('/api/bracket/events').catch(() => ({ events: [] })),
     ]);
     const mineIds = new Set(mine.map((l) => l.id));
     const mineFull = leagues.filter((l) => mineIds.has(l.id));
@@ -445,6 +450,7 @@ async function renderLanding(id, mine) {
     const pendingIds = new Set(pending.map((r) => r.league_id));
     const newSeasons = leagues.filter((l) => !mineIds.has(l.id) && !pendingIds.has(l.id));
     const openNights = (rrEvents || []).filter((e) => e.published && e.status === 'setup');
+    const openBrackets = (brEvents || []).filter((e) => e.published && e.status === 'setup');
     app.innerHTML = `
       <div class="landing-watermark" aria-hidden="true"></div>
       <div class="landing-view">
@@ -470,6 +476,12 @@ async function renderLanding(id, mine) {
           <strong>${esc(e.name)}</strong><br>
           <span class="muted small">${esc(rrWhen(e))} · ${rrKindLabel(e.kind)}${e.kind === 'money' ? ` · ${rrMoney(e.fee_cents)} per person` : ''} · ${e.team_count} of ${e.max_teams || 24} teams filled${e.solo_count ? ` · ${e.solo_count} waiting to be paired` : ''}</span>
           <div class="btnrow"><a class="btn green small" href="#/roundrobin/${e.id}">Join this night</a></div>
+        </div>`).join('')}` : ''}
+      ${openBrackets.length ? `<h2>Bracket — sign-ups open</h2>
+        ${openBrackets.map((e) => `<div class="card">
+          <strong>${esc(e.name)}</strong><br>
+          <span class="muted small">${esc(rrWhen(e))} · Double elimination · ${rrKindLabel(e.kind)}${e.kind === 'money' ? ` · ${rrMoney(e.fee_cents)} per person` : ''} · ${e.team_count} of ${e.max_teams || 12} teams filled${e.solo_count ? ` · ${e.solo_count} waiting to be paired` : ''}</span>
+          <div class="btnrow"><a class="btn green small" href="#/bracket/${e.id}">Join this night</a></div>
         </div>`).join('')}` : ''}
       ${leagues.length === 0 ? `<div class="card"><h2>A glimpse of what's coming</h2>
         <p class="muted small">Here's what the app looks like once play starts. The samples below are from the completed test season, not live pages.</p>
@@ -1576,7 +1588,7 @@ async function renderAdmin() {
     <div class="admin-view">
     <h1>Admin</h1><p class="muted">ADMIN ONLY</p>
     <p class="muted">Signed in as <strong>${esc(me.name || 'Admin')}</strong></p>
-    <div class="btnrow"><button class="btn secondary small" id="logoutBtn">Sign out</button><a class="btn secondary small" href="#/roundrobin">Round Robin</a></div>
+    <div class="btnrow"><button class="btn secondary small" id="logoutBtn">Sign out</button><a class="btn secondary small" href="#/roundrobin">Round Robin</a><a class="btn secondary small" href="#/bracket">Bracket</a></div>
     <div class="league-tabs">
       ${leagues.map((l) => `<button data-lid="${l.id}" class="${l.id === adminLeagueId ? 'active' : ''}">${esc(l.name)}</button>`).join('')}
     </div>
@@ -1880,6 +1892,37 @@ async function renderAdminBody(leagues, league, me) {
       <p class="fineprint" id="rrc-err"></p>
     </div>`;
 
+  // ---- create a bracket night (same card shape as round robin) ----
+  // A bracket only decides 1st, 2nd and 3rd, so the 4-place payout split
+  // is not offered here — there is no 4th-place team to pay.
+  const brCreateHtml = `
+    <div class="rr-create-card">
+      <h3>STEP 1 — YOU CREATE THE BRACKET NIGHT <span class="rr-admin-badge">ADMIN</span></h3>
+      <p>A one-off double-elimination night: teams are seeded by combined doubles rating, the lowest seeds play first, losers drop to a second bracket — lose twice and you're out. The winners-bracket champion meets the losers-bracket champion in the grand final.</p>
+      <label>Night name</label><input type="text" id="brc-name" placeholder="e.g. Friday Bracket Night" style="width:100%">
+      <div class="field-row">
+        <div><label>Date</label><input type="date" id="brc-date"><p class="fineprint" id="brc-date-label"></p></div>
+        <div><label>Start time</label><input type="time" id="brc-time" value="18:30"><p class="fineprint">YMCA, 601 26th Ave SE, Moultrie, GA 31768</p></div>
+      </div>
+      <div class="field-row">
+        <div><label>Kind of night</label>
+          <div class="level-pick" id="brc-kind">
+            <button type="button" data-kind="money" class="picked">Money Ball</button>
+            <button type="button" data-kind="charity">Free play</button>
+          </div>
+          <p class="fineprint" id="brc-kind-note">Money Ball is the default $10 a person.</p></div>
+        <div id="brc-fee-wrap"><label>Entry fee per person</label><input type="text" inputmode="decimal" id="brc-fee" value="10" style="width:80px"><p class="fineprint">Pot grows with every player who joins.</p></div>
+      </div>
+      <div class="field-row">
+        <div><label>Teams</label><select id="brc-max">${[4, 6, 8, 10, 12, 16].map((n) => `<option value="${n}"${n === 12 ? ' selected' : ''}>${n} teams</option>`).join('')}</select><p class="fineprint">The bracket only comes in these sizes. Signups close on their own when it fills.</p></div>
+        <div><label>Signups close</label><select id="brc-close"><option value="day-3h">Day of play, 3:30 PM</option><option value="fill">When it fills</option></select><p class="fineprint">You can also close them early by hand.</p></div>
+      </div>
+      <p id="brc-payout-wrap"><label>Payout</label><select id="brc-payout">${RR_PAYOUTS.filter((p) => p.id !== 'top-four-40-30-20-10').map((p) => `<option value="${p.id}">${esc(p.label)}</option>`).join('')}</select></p>
+      <div class="rr-publish-row"><button class="btn rr-publish-btn" id="brc-publish">Published ✓ — tap to unpublish</button><span class="rr-publish-note" id="brc-publish-note">Published — members can see this night and join.</span></div>
+      <div class="btnrow"><button class="btn" id="brc-create">Create night</button></div>
+      <p class="fineprint" id="brc-err"></p>
+    </div>`;
+
   // ---- delete a league (wipe it clean) ----
   const deleteHtml = `
     <label>League</label><select id="dl-league">${leagues.map((l) => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select>
@@ -1897,6 +1940,7 @@ async function renderAdminBody(leagues, league, me) {
     section('tools', 'Game day tools', 'Finish a game day, build the schedule, print the court sheet, and move a game day.', toolsHtml) +
     section('penalties', 'Standings penalties', 'Miss penalties and Admin adjustments per player.', penaltiesHtml) +
     section('roundrobin', 'Round Robin', 'Create a one-off round robin night — members join themselves once it is published.', rrCreateHtml) +
+    section('bracket', 'Bracket', 'Create a one-off double-elimination bracket night — members join themselves once it is published.', brCreateHtml) +
     section('passcodes', 'Admin passcodes', 'Each admin signs in with their own passcode — set one, change one, or remove one.', passcodesHtml) +
     section('activity', 'Admin activity', 'Who signed in, and when. Refreshes every 30 seconds while you are on this page.', activityHtml) +
     section('delete', 'Delete a league', 'Wipe a league clean: players, game days, matches, and sign-ups go with it. Members stay.', deleteHtml);
@@ -2032,6 +2076,85 @@ async function renderAdminBody(leagues, league, me) {
         const { event } = await post('/api/admin/round-robin/events', body);
         toast('Night created.');
         location.hash = `#/roundrobin/${event.id}`;
+      } catch (e) { err.textContent = e.message; }
+    };
+  }
+
+  // ---- create a bracket night ----
+  const brcCreateBtn = document.getElementById('brc-create');
+  if (brcCreateBtn) {
+    let brcKind = 'money';
+    let brcPublished = true;
+    const brcDate = document.getElementById('brc-date');
+    const brcDateLabel = document.getElementById('brc-date-label');
+    const brcTime = document.getElementById('brc-time');
+    const brcClose = document.getElementById('brc-close');
+    const brcFeeWrap = document.getElementById('brc-fee-wrap');
+    const brcPayoutWrap = document.getElementById('brc-payout-wrap');
+    const brcKindNote = document.getElementById('brc-kind-note');
+    const brcPublishBtn = document.getElementById('brc-publish');
+    const brcPublishNote = document.getElementById('brc-publish-note');
+    const brcSyncDate = () => {
+      if (brcDateLabel) {
+        brcDateLabel.textContent = brcDate.value
+          ? asLocalDate(brcDate.value).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+          : '';
+      }
+    };
+    const brcSyncClose = () => {
+      const opt = brcClose ? brcClose.querySelector('option[value="day-3h"]') : null;
+      if (opt) {
+        const [h, m] = (brcTime.value || '18:30').split(':').map(Number);
+        const close = `${String((h - 3 + 24) % 24).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}`;
+        opt.textContent = `Day of play, ${fmtClock(close)}`;
+      }
+    };
+    const brcSyncPublish = () => {
+      brcPublishBtn.textContent = brcPublished ? 'Published ✓ — tap to unpublish' : 'Not published — tap to publish';
+      brcPublishNote.textContent = brcPublished
+        ? 'Published — members can see this night and join.'
+        : "Not published — members won't see this night until you publish it.";
+      brcPublishNote.classList.toggle('off', !brcPublished);
+    };
+    if (brcDate) brcDate.onchange = brcSyncDate;
+    if (brcTime) brcTime.onchange = brcSyncClose;
+    brcSyncClose();
+    document.querySelectorAll('#brc-kind button').forEach((b) => {
+      b.onclick = () => {
+        brcKind = b.dataset.kind;
+        document.querySelectorAll('#brc-kind button').forEach((x) => x.classList.toggle('picked', x === b));
+        const money = brcKind === 'money';
+        if (brcFeeWrap) brcFeeWrap.hidden = !money;
+        if (brcPayoutWrap) brcPayoutWrap.hidden = !money;
+        if (brcKindNote) brcKindNote.textContent = money ? 'Money Ball is the default $10 a person.' : 'Free play — no entry fee, no payouts. The Winners card shows the top 3 once the night is finished.';
+      };
+    });
+    if (brcPublishBtn) brcPublishBtn.onclick = () => { brcPublished = !brcPublished; brcSyncPublish(); };
+    brcCreateBtn.onclick = async () => {
+      const err = document.getElementById('brc-err');
+      const name = document.getElementById('brc-name').value.trim();
+      const date = brcDate.value;
+      if (!name) { err.textContent = 'Give the night a name.'; return; }
+      if (!date) { err.textContent = 'Pick a date.'; return; }
+      const body = {
+        name,
+        event_date: date,
+        kind: brcKind,
+        start_time: brcTime.value || '18:30',
+        max_teams: +document.getElementById('brc-max').value || 12,
+        signup_close: brcClose.value,
+        published: brcPublished,
+      };
+      if (brcKind === 'money') {
+        const fee = parseFloat(document.getElementById('brc-fee').value);
+        if (Number.isNaN(fee) || fee < 0) { err.textContent = 'Entry fee must be $0 or more.'; return; }
+        body.fee_cents = Math.round(fee * 100);
+        body.payout = document.getElementById('brc-payout').value;
+      }
+      try {
+        const { event } = await post('/api/admin/bracket/events', body);
+        toast('Night created.');
+        location.hash = `#/bracket/${event.id}`;
       } catch (e) { err.textContent = e.message; }
     };
   }
@@ -3856,6 +3979,606 @@ function renderRRScoreView(id, m, byId, num) {
         toast('Score cleared.');
         rrScoreMatchId = null;
         renderRREvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+}
+
+// ---------- Bracket ----------
+// One-off double-elimination nights, separate from leagues and round robin.
+// Fixed doubles teams stay together all night; teams are seeded by combined
+// doubles rating, losers drop to a second bracket, lose twice and you're out.
+// The winners-bracket champion meets the losers-bracket champion in the
+// grand final, with a reset game if the losers champion wins the first final.
+// Scoring mirrors the round robin flow: one match at a time, SCORE button,
+// dedicated score screen, finished matches below.
+//
+// Two differences from round robin, both forced by the shape of a bracket:
+// - A bracket night plays several matches at once (the whole play-in round
+//   is ready on the first night), so a SCORE button sits on every match
+//   whose teams are both decided and that has no score yet — not only on
+//   one "round in play". Rounds are badged Now playing / Completed /
+//   Waiting instead of being reordered, so the bracket always reads in
+//   bracket order (winners rounds, then losers rounds, then grand final).
+// - There is no standings table and no court assignment: a bracket has no
+//   E/P order until it resolves, and matches are not scheduled onto courts.
+let brScoreMatchId = null;
+// Partner picked in the join box (survives the 30s refresh), and the first
+// solo picked for Admin pairing. Both carry the event id they belong to,
+// so a stale pick from another night is ignored.
+let brJoinPartner = null; // { personId, name, eventId }
+let brPairFirst = null; // { id, eventId, name }
+const BRACKET_SIZES = [4, 6, 8, 10, 12, 16];
+
+function brNextPow2(n) {
+  let b = 1;
+  while (b < n) b *= 2;
+  return b;
+}
+
+// Round titles. Winners bracket by match count, with a play-in label when
+// the top seeds waited on byes; losers bracket by index, the last round
+// being the Losers Final; G is the Grand Final / Reset Game.
+function brRoundTitle(bracket, round, count, n, isLastWb, isLastLb) {
+  if (bracket === 'G') return round === 0 ? 'Grand Final' : 'Reset Game';
+  if (bracket === 'W') {
+    // The play-in check comes first: for 6 and 10 teams the play-in has
+    // only 2 matches, which would otherwise read as a semifinal.
+    if (round === 0 && brNextPow2(n) > n) return 'Winners Round 1 · Play-in';
+    if (isLastWb) return 'Winners Final';
+    if (count === 2) return 'Winners Semifinal';
+    if (count === 4) return 'Winners Quarterfinal';
+    if (count === 8) return 'Winners Round of 16';
+    return `Winners Round ${round + 1}`;
+  }
+  if (isLastLb) return 'Losers Final';
+  return `Losers Round ${round + 1}`;
+}
+
+async function renderBrList() {
+  // Nights list only — creating a night lives on the Admin page
+  // ("Bracket" section), where the create card lives.
+  app.innerHTML = `<h1>Bracket</h1>
+    <p class="muted">One-off double-elimination bracket nights, separate from leagues. Fixed teams stay together all night — lose twice and you're out, and the winners-bracket champion meets the losers-bracket champion in the grand final.</p>
+    <div id="brList"><p class="muted">Loading…</p></div>`;
+  const me = await api('/api/admin/me').catch(() => ({ admin: false }));
+  const { events } = await api('/api/bracket/events').catch(() => ({ events: [] }));
+  document.getElementById('brList').innerHTML = events.length
+    ? events
+        .map((ev) => {
+          const joinOpen = ev.published && ev.status === 'setup' && !me.admin;
+          return `<div class="card">
+        <strong>${esc(ev.name)}</strong><br>
+        <span class="muted">${esc(rrWhen(ev))} · Double elimination · ${rrKindLabel(ev.kind)} · ${rrStatusLabel(ev.status)}${ev.published && ev.status === 'setup' ? ' · Sign-ups open' : ''} · ${ev.team_count} team(s)${ev.solo_count ? ` · ${ev.solo_count} waiting to be paired` : ''}${ev.kind === 'money' ? ` · ${rrMoney(ev.fee_cents)} per person` : ''}${ev.match_count ? ` · ${ev.scored_count}/${ev.match_count} scored` : ''}</span>
+        <div class="btnrow"><a class="btn ${joinOpen ? 'green ' : ''}small" href="#/bracket/${ev.id}">${joinOpen ? 'Join' : 'Open'}</a></div>
+      </div>`;
+        })
+        .join('')
+    : `<div class="card"><p>No bracket nights yet.</p></div>`;
+}
+
+async function renderBrEvent(id) {
+  // Same refresh discipline as game days and round robin: clear the old
+  // timer before setting a new one. No refresh while a score screen is
+  // open, so typed scores are never wiped mid-entry.
+  clearInterval(refreshTimer);
+  const data = await api(`/api/bracket/events/${id}`).catch((e) => ({ error: e.message }));
+  if (data.error || !data.event) {
+    app.innerHTML = `<div class="banner warn">${esc(data.error || 'Not found.')}</div>`;
+    return;
+  }
+  const { event, teams, solos = [], matches, podium, records, payouts, isAdmin } = data;
+  const byId = new Map(teams.map((t) => [t.id, t]));
+  const recByTeam = new Map(records.map((r) => [r.teamId, r]));
+  const matchesById = new Map(matches.map((m) => [m.id, m]));
+  // Matches arrive in creation order — number them 1..N for the night so
+  // every card has its own number.
+  const numOf = new Map(matches.map((m, i) => [m.id, i + 1]));
+  const finished = event.status === 'completed';
+  // Round groups, in bracket order: winners rounds, then losers rounds,
+  // then the grand final. Each group knows its title and its match count.
+  const maxWbRound = Math.max(-1, ...matches.filter((m) => m.bracket === 'W').map((m) => m.round));
+  const maxLbRound = Math.max(-1, ...matches.filter((m) => m.bracket === 'L').map((m) => m.round));
+  const roundGroups = [];
+  for (const br of ['W', 'L', 'G']) {
+    const rounds = [...new Set(matches.filter((m) => m.bracket === br).map((m) => m.round))].sort((a, b) => a - b);
+    for (const r of rounds) {
+      const ms = matches.filter((m) => m.bracket === br && m.round === r);
+      roundGroups.push({
+        bracket: br,
+        round: r,
+        matches: ms,
+        title: brRoundTitle(br, r, ms.length, teams.length, br === 'W' && r === maxWbRound, br === 'L' && r === maxLbRound),
+      });
+    }
+  }
+  const titleOf = (m) => {
+    const g = roundGroups.find((x) => x.bracket === m.bracket && x.round === m.round);
+    return g ? g.title : '';
+  };
+  // A slot that hasn't resolved yet: say who it will be ("Winner · Winners
+  // Quarterfinal · Game 2"). Seed slots always resolve once the night is
+  // built, so they only show as a fallback.
+  const slotLabel = (slot) => {
+    if (slot.type === 'seed') return `#${slot.ref}`;
+    const src = matchesById.get(slot.ref);
+    if (!src) return '—';
+    return `${slot.type === 'winner' ? 'Winner' : 'Loser'} · ${titleOf(src)} · Game ${src.game_no}`;
+  };
+  const gf1 = matches.find((m) => m.bracket === 'G' && m.round === 0);
+  const gf1Decided = !!gf1 && gf1.score1 != null;
+  if (brScoreMatchId) {
+    const open = matches.find((m) => m.id === brScoreMatchId);
+    if (open) { renderBrScoreView(id, open, byId, numOf.get(open.id), titleOf(open)); return; }
+    brScoreMatchId = null;
+  }
+  let html = `<h1>${esc(event.name)}</h1>
+    <p class="muted">${esc(rrWhen(event))} · Double elimination · ${rrKindLabel(event.kind)} · ${rrStatusLabel(event.status)}</p>
+    ${event.status === 'setup' ? `<p class="muted">${esc(rrCloseLabel(event))}</p>` : ''}`;
+  if (finished) html += `<div class="banner finished">Night finished — final standings and payouts below.</div>`;
+  const placeLabel = (n) => ['1ST', '2ND', '3RD'][n - 1] || `${n}TH`;
+  if (event.kind === 'money' && payouts) {
+    html += `<div class="card"><strong>Pot ${rrMoney(payouts.potCents)}</strong> <span class="muted">— ${teams.length * 2} players × ${rrMoney(event.fee_cents)} · ${esc(rrPayoutLabel(event.payout))}</span>
+      ${payouts.places
+        .map((p) => {
+          const t = p.teamId != null ? byId.get(p.teamId) : null;
+          const r = p.teamId != null ? recByTeam.get(p.teamId) : null;
+          return `<div class="rr-place">
+            <div class="rr-medal m${p.place}">${p.place}</div>
+            <div class="rr-place-info">
+              <div class="rr-place-label">${placeLabel(p.place)} PLACE</div>
+              <div class="rr-place-team">${t ? `<span class="br-seed">#${t.seed}</span>${esc(t.label)}` : '<span class="muted">—</span>'}</div>
+              ${r ? `<div class="muted">${r.w}W–${r.l}L</div>` : ''}
+            </div>
+            <div class="rr-place-amount"><strong>${rrMoney(p.amountCents)}</strong>${p.note ? `<div class="muted">${esc(p.note)}</div>` : ''}</div>
+          </div>`;
+        })
+        .join('')}
+    </div>`;
+  }
+  // Free play: same medal winners view as money ball, without the money —
+  // the podium (champion, runner-up, 3rd) once the night is finished. While
+  // the night is still playing there is no Leaders card: a bracket has no
+  // standings order until it resolves.
+  if (event.kind !== 'money' && finished && podium) {
+    const won = [
+      { place: 1, teamId: podium.champion },
+      { place: 2, teamId: podium.runnerUp },
+      { place: 3, teamId: podium.third },
+    ].filter((p) => p.teamId != null);
+    if (won.length) {
+      html += `<div class="card"><strong>Winners</strong>
+        ${won
+          .map((p) => {
+            const t = byId.get(p.teamId);
+            const r = recByTeam.get(p.teamId);
+            return `<div class="rr-place">
+              <div class="rr-medal m${p.place}">${p.place}</div>
+              <div class="rr-place-info">
+                <div class="rr-place-label">${placeLabel(p.place)} PLACE</div>
+                <div class="rr-place-team">${t ? `<span class="br-seed">#${t.seed}</span>${esc(t.label)}` : '<span class="muted">—</span>'}</div>
+                ${r ? `<div class="muted">${r.w}W–${r.l}L</div>` : ''}
+              </div>
+            </div>`;
+          })
+          .join('')}
+      </div>`;
+    }
+  }
+  // Where the viewer stands on this night (person ids come from the
+  // self-join endpoints; hand-added teams carry NULL ids and never match).
+  const meId = getIdentity() ? getIdentity().personId : null;
+  const myTeam = meId ? teams.find((t) => t.person1_id === meId || t.person2_id === meId) : null;
+  const mySolo = meId ? solos.find((s) => s.person_id === meId) : null;
+  const nightFull = teams.length >= (event.max_teams || 12);
+  if (event.status === 'setup' && event.published) {
+    // Join box — members join themselves. The organizer's add-by-hand form
+    // stays below in the Teams card, and joining closes on its own once
+    // the night is built (status playing).
+    html += `<div class="card" id="br-join-box"><h3>Join this night</h3>`;
+    if (!meId) {
+      html += `<p class="muted">Sign-ups are open — tap your name to join.</p>
+        <div class="searchrow"><input type="text" id="br-who-q" placeholder="Search your name…" autocomplete="off"></div>
+        <div id="br-who-list"><p class="muted">Type your name above.</p></div>
+        <p class="muted">Not a member yet? <a href="#/members">Become a free MPA member</a> first.</p>`;
+    } else if (myTeam) {
+      html += `<p>You're in — <strong>${esc(myTeam.label)}</strong></p>
+        <div class="btnrow"><button class="btn secondary small" id="br-leave">Leave this night</button></div>`;
+    } else if (mySolo) {
+      html += `<p>You're signed up solo — waiting to be paired.</p>
+        <div class="btnrow"><button class="btn secondary small" id="br-leave">Leave this night</button></div>`;
+    } else {
+      const partner = brJoinPartner && brJoinPartner.eventId === id ? brJoinPartner : null;
+      html += `<p>Join as <strong>${esc(getIdentity().name)}</strong></p>
+        <label>Partner (for a team)</label>
+        <div class="searchrow"><input type="text" id="br-partner-q" placeholder="Search your partner's name…" autocomplete="off"></div>
+        <div id="br-partner-list">${partner ? `<p>Partner: <strong>${esc(partner.name)}</strong> <button class="btn secondary small" id="br-partner-clear">Change</button></p>` : '<p class="muted">Pick a partner, or join solo and the organizer will pair you up.</p>'}</div>
+        <div class="btnrow"><button class="btn" id="br-join-team" ${partner && !nightFull ? '' : 'disabled'}>Join as a team</button>
+        <button class="btn secondary" id="br-join-solo" ${nightFull ? 'disabled' : ''}>Join solo</button></div>
+        ${nightFull ? `<p class="muted">This night is full (${event.max_teams || 12} teams).</p>` : ''}`;
+    }
+    html += `</div>`;
+  }
+  if (event.status === 'setup') {
+    html += `<div class="card"><h3>Teams — ${teams.length}</h3>
+      ${teams.map((t) => `<div>${esc(t.label)}${isAdmin ? ` <button class="btn secondary small" data-rm-team="${t.id}">Remove</button>` : ''}</div>`).join('') || '<p class="muted">No teams yet.</p>'}
+      ${isAdmin ? `<p><input type="text" id="br-p1" placeholder="Player 1" style="width:45%"> <input type="text" id="br-p2" placeholder="Player 2" style="width:45%"></p>
+      <div class="btnrow"><button class="btn small" id="br-add-team">Add team</button></div>` : '<p class="muted">Waiting for the organizer to add teams and build the night.</p>'}
+    </div>`;
+    if (solos.length) {
+      html += `<div class="card"><h3>Waiting to be paired — ${solos.length}</h3>
+        ${solos.map((s) => {
+          const picked = isAdmin && brPairFirst && brPairFirst.eventId === id && brPairFirst.id === s.id;
+          return `<div>${esc(s.name)}${isAdmin ? ` <button class="btn secondary small" data-br-pair="${s.id}"${picked ? ' disabled' : ''}>${picked ? 'Picked — now tap a second solo' : 'Pair'}</button>` : ''}</div>`;
+        }).join('')}
+        ${isAdmin ? '<p class="muted">Tap Pair on two solos to make them a team.</p>' : '<p class="muted">The organizer pairs solos into teams.</p>'}
+      </div>`;
+    }
+    if (isAdmin) {
+      const canBuild = BRACKET_SIZES.includes(teams.length);
+      html += `<div class="card"><h3>Night settings</h3>
+        ${event.kind === 'money' ? `<p>Entry fee per person ($) <input type="text" inputmode="decimal" id="br-edit-fee" value="${(event.fee_cents / 100).toFixed(2)}" style="width:80px"></p>
+        <p>Payout <select id="br-edit-payout">${RR_PAYOUTS.filter((p) => p.id !== 'top-four-40-30-20-10').map((p) => `<option value="${p.id}"${p.id === event.payout ? ' selected' : ''}>${esc(p.label)}</option>`).join('')}</select></p>
+        <div class="btnrow"><button class="btn small" id="br-save-settings">Save settings</button></div>` : '<p class="muted">Free charity night — no fee, no payouts. To run this as a money ball instead, delete it and create a new night.</p>'}
+        <p>Sign-ups: <strong>${event.published ? 'Open — members can join' : 'Closed — members cannot join'}</strong></p>
+        <div class="btnrow"><button class="btn secondary small" id="br-publish">${event.published ? 'Unpublish' : 'Publish'}</button>${event.published ? '<button class="btn secondary small" id="br-close-signups">Close signups</button>' : ''}</div>
+        <div class="btnrow"><button class="btn" id="br-build" ${canBuild ? '' : 'disabled'}>Build the bracket</button>
+        <button class="btn secondary small" id="br-delete">Delete night</button></div>
+        ${canBuild
+          ? `<p class="muted">Building seeds the teams by combined doubles rating and builds the double-elimination bracket — ${teams.length} teams make ${2 * teams.length - 2} games to 11 (+1 if a reset game is needed).</p>`
+          : `<p class="muted">A bracket needs 4, 6, 8, 10, 12 or 16 teams — ${teams.length} signed up. Add or remove a team, then build.</p>`}
+      </div>`;
+    }
+  }
+  if (matches.length) {
+    const games = matches;
+    const done = games.filter((m) => m.score1 != null);
+    const teamCell = (m, which) => {
+      const teamId = which === 1 ? m.team1_id : m.team2_id;
+      const team = teamId != null ? byId.get(teamId) : null;
+      if (team) return `<span class="br-seed">#${team.seed}</span>${esc(team.label)}`;
+      const slot = which === 1 ? { type: m.slot1_type, ref: m.slot1_ref } : { type: m.slot2_type, ref: m.slot2_ref };
+      return `<span class="br-slot-wait">${esc(slotLabel(slot))}</span>`;
+    };
+    const cardHtml = (m) => {
+      const scored = m.score1 != null;
+      const t1Win = scored && m.score1 > m.score2;
+      const t2Win = scored && m.score2 > m.score1;
+      const teamRow = (cell, won, lost, score) =>
+        `<div class="teams${won ? ' rr-team-win' : lost ? ' rr-team-lose' : ''}">${cell}${scored ? ` <span class="rr-score">${score}</span>` : ''}</div>`;
+      // SCORE button: on every unplayed match whose teams are both decided
+      // and that is actually going to be played (the reset game only when
+      // it is needed) — a bracket plays several matches at once, so there
+      // is no single "round in play" to gate on.
+      const canScore = !finished && !scored && m.ready && m.active;
+      // Edit link: Admin-only, on a scored match while the night is still
+      // playing — reopens the same score screen, so a mistyped score can
+      // be fixed without the big SCORE button coming back.
+      const canEdit = !finished && scored && isAdmin;
+      const isReset = m.bracket === 'G' && m.round === 1;
+      const noReset = isReset && !m.active && gf1Decided;
+      return `<div class="match-card">
+        <div class="teams">Match ${numOf.get(m.id)}</div>
+        <p class="muted">First to ${m.target_score}, win by 1</p>
+        <div class="muted">${esc(titleOf(m))} · Game ${m.game_no}</div>
+        ${teamRow(teamCell(m, 1), t1Win, t2Win, m.score1)}
+        <div class="vs">VS</div>
+        ${teamRow(teamCell(m, 2), t2Win, t1Win, m.score2)}
+        ${noReset ? `<p class="muted">No reset game needed — the winners-bracket champion won the grand final.</p>` : ''}
+        ${canScore ? `<button class="btn" data-br-score="${m.id}">SCORE</button>` : ''}
+        ${canEdit ? `<button class="rr-edit" data-br-score="${m.id}">Edit</button>` : ''}
+      </div>`;
+    };
+    // Bracket sections stay in bracket order — winners rounds, then losers
+    // rounds, then the grand final — each badged by whether it has a match
+    // ready to score, is fully scored, or is still waiting on earlier
+    // results. (Round robin reorders its rounds with the round in play on
+    // top; a bracket has several playable rounds at once, so reordering
+    // would shuffle the bracket as the night goes on.)
+    html += `<h2>Bracket</h2>`;
+    for (const g of roundGroups) {
+      const allScored = g.matches.every((m) => m.score1 != null);
+      const anyReady = g.matches.some((m) => m.score1 == null && m.ready && m.active);
+      const [cls, label] = allScored
+        ? ['completed', 'Completed']
+        : anyReady
+          ? ['playing', 'Now playing']
+          : ['upcoming', 'Waiting'];
+      html += `<section class="rr-round"><h3>${esc(g.title)} <span class="badge ${cls}">${label}</span></h3><div class="rr-matches">` + g.matches.map(cardHtml).join('') + `</div></section>`;
+    }
+    if (isAdmin && event.status === 'playing') {
+      html += `<div class="btnrow"><button class="btn" id="br-finish">Finish the night</button>${done.length === 0 ? '<button class="btn secondary" id="br-rebuild">Rebuild the night</button>' : ''}<button class="btn secondary" id="br-delete">Delete night</button></div>`;
+    }
+    if (isAdmin && finished) {
+      html += `<div class="btnrow"><button class="btn secondary" id="br-reopen">Reopen the night</button><button class="btn secondary" id="br-delete">Delete night</button></div>`;
+    }
+  }
+  app.innerHTML = html;
+  app.querySelectorAll('button[data-br-score]').forEach((b) => {
+    b.onclick = () => { brScoreMatchId = +b.dataset.brScore; renderBrEvent(id); };
+  });
+  app.querySelectorAll('button[data-rm-team]').forEach((b) => {
+    b.onclick = async () => {
+      try {
+        await api(`/api/admin/bracket/events/${id}/teams/${b.dataset.rmTeam}`, { method: 'DELETE' });
+        renderBrEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  });
+  const addBtn = document.getElementById('br-add-team');
+  if (addBtn) {
+    addBtn.onclick = async () => {
+      const p1 = document.getElementById('br-p1').value.trim();
+      const p2 = document.getElementById('br-p2').value.trim();
+      if (!p1 || !p2) { toast('Enter both players’ names.'); return; }
+      try {
+        await post(`/api/admin/bracket/events/${id}/teams`, { player1: p1, player2: p2 });
+        renderBrEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const saveBtn = document.getElementById('br-save-settings');
+  if (saveBtn) {
+    saveBtn.onclick = async () => {
+      const fee = parseFloat(document.getElementById('br-edit-fee').value);
+      if (Number.isNaN(fee) || fee < 0) { toast('Entry fee must be $0 or more.'); return; }
+      try {
+        await api(`/api/admin/bracket/events/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ fee_cents: Math.round(fee * 100), payout: document.getElementById('br-edit-payout').value }),
+        });
+        toast('Settings saved.');
+        renderBrEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const buildBtn = document.getElementById('br-build');
+  if (buildBtn) {
+    buildBtn.onclick = async () => {
+      try {
+        const r = await post(`/api/admin/bracket/events/${id}/build`, {});
+        toast(`Bracket built — ${r.games} games to a champion.`);
+        renderBrEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const delBtn = document.getElementById('br-delete');
+  if (delBtn) {
+    delBtn.onclick = async () => {
+      if (!confirm('Delete this night, its teams and all its scores? This cannot be undone.')) return;
+      try {
+        await api(`/api/admin/bracket/events/${id}`, { method: 'DELETE' });
+        toast('Night deleted.');
+        location.hash = '#/bracket';
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const finBtn = document.getElementById('br-finish');
+  if (finBtn) {
+    finBtn.onclick = async () => {
+      try {
+        await post(`/api/admin/bracket/events/${id}/finish`, {});
+        toast('Night finished.');
+        renderBrEvent(id);
+      } catch (e) {
+        if (/unscored/.test(e.message) && confirm(`${e.message} Finish anyway?`)) {
+          try {
+            await post(`/api/admin/bracket/events/${id}/finish`, { force: true });
+            toast('Night finished.');
+            renderBrEvent(id);
+          } catch (e2) { toast(e2.message); }
+        } else if (!/unscored/.test(e.message)) {
+          toast(e.message);
+        }
+      }
+    };
+  }
+  const rebuildBtn = document.getElementById('br-rebuild');
+  if (rebuildBtn) {
+    rebuildBtn.onclick = async () => {
+      if (!confirm('Rebuild the bracket? No scores have been entered yet, so nothing is lost.')) return;
+      try {
+        const r = await post(`/api/admin/bracket/events/${id}/build`, {});
+        toast(`Bracket built — ${r.games} games to a champion.`);
+        renderBrEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const reopenBtn = document.getElementById('br-reopen');
+  if (reopenBtn) {
+    reopenBtn.onclick = async () => {
+      try {
+        await post(`/api/admin/bracket/events/${id}/reopen`, {});
+        toast('Night reopened.');
+        renderBrEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  // ---- self-join wiring ----
+  const whoQ = document.getElementById('br-who-q');
+  if (whoQ) {
+    const whoList = document.getElementById('br-who-list');
+    whoQ.addEventListener('input', async () => {
+      const q = whoQ.value.trim();
+      if (q.length < 2) { whoList.innerHTML = '<p class="muted">Type your name above.</p>'; return; }
+      const rows = await rrSearchPeople(q);
+      if (!rows.length) { whoList.innerHTML = '<p class="muted">No match — check the spelling, or become a member first.</p>'; return; }
+      whoList.innerHTML = rows.map(rrPersonRowHtml).join('');
+      whoList.querySelectorAll('.person-row').forEach((row) => {
+        row.onclick = () => {
+          setIdentity(+row.dataset.pid, row.dataset.name);
+          toast(`Hi ${row.dataset.name} — welcome back.`);
+          renderBrEvent(id);
+        };
+      });
+    });
+  }
+  const partnerQ = document.getElementById('br-partner-q');
+  if (partnerQ) {
+    const partnerList = document.getElementById('br-partner-list');
+    partnerQ.addEventListener('input', async () => {
+      const q = partnerQ.value.trim();
+      if (q.length < 2) { partnerList.innerHTML = '<p class="muted">Pick a partner, or join solo and the organizer will pair you up.</p>'; return; }
+      const rows = (await rrSearchPeople(q)).filter((p) => p.personId !== meId);
+      if (!rows.length) { partnerList.innerHTML = '<p class="muted">No match — check the spelling.</p>'; return; }
+      partnerList.innerHTML = rows.map(rrPersonRowHtml).join('');
+      partnerList.querySelectorAll('.person-row').forEach((row) => {
+        row.onclick = () => {
+          brJoinPartner = { personId: +row.dataset.pid, name: row.dataset.name, eventId: id };
+          partnerList.innerHTML = `<p>Partner: <strong>${esc(brJoinPartner.name)}</strong> <button class="btn secondary small" id="br-partner-clear">Change</button></p>`;
+          const joinTeamBtn = document.getElementById('br-join-team');
+          if (joinTeamBtn) joinTeamBtn.disabled = false;
+          wirePartnerClear();
+        };
+      });
+    });
+  }
+  function wirePartnerClear() {
+    const clearBtn = document.getElementById('br-partner-clear');
+    if (clearBtn) {
+      clearBtn.onclick = () => {
+        brJoinPartner = null;
+        document.getElementById('br-partner-list').innerHTML = '<p class="muted">Pick a partner, or join solo and the organizer will pair you up.</p>';
+        const joinTeamBtn = document.getElementById('br-join-team');
+        if (joinTeamBtn) joinTeamBtn.disabled = true;
+      };
+    }
+  }
+  wirePartnerClear();
+  const joinTeamBtn = document.getElementById('br-join-team');
+  if (joinTeamBtn) {
+    joinTeamBtn.onclick = async () => {
+      if (!brJoinPartner || brJoinPartner.eventId !== id) { toast('Pick a partner first.'); return; }
+      try {
+        await post(`/api/bracket/events/${id}/join-team`, { personId: meId, partnerPersonId: brJoinPartner.personId });
+        toast(`You're in — ${getIdentity().name} & ${brJoinPartner.name}.`);
+        brJoinPartner = null;
+        renderBrEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const joinSoloBtn = document.getElementById('br-join-solo');
+  if (joinSoloBtn) {
+    joinSoloBtn.onclick = async () => {
+      try {
+        await post(`/api/bracket/events/${id}/join-solo`, { personId: meId });
+        toast('Signed up solo — the organizer will pair you up.');
+        renderBrEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const leaveBtn = document.getElementById('br-leave');
+  if (leaveBtn) {
+    leaveBtn.onclick = async () => {
+      try {
+        await post(`/api/bracket/events/${id}/leave`, { personId: meId });
+        toast('You left this night.');
+        renderBrEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  app.querySelectorAll('button[data-br-pair]').forEach((b) => {
+    b.onclick = async () => {
+      const soloId = +b.dataset.brPair;
+      if (!brPairFirst || brPairFirst.eventId !== id) {
+        const solo = solos.find((s) => s.id === soloId);
+        brPairFirst = { id: soloId, eventId: id, name: solo ? solo.name : '' };
+        toast(`Picked ${brPairFirst.name || 'solo'} — now tap a second solo to pair them.`);
+        renderBrEvent(id);
+        return;
+      }
+      if (brPairFirst.id === soloId) { brPairFirst = null; renderBrEvent(id); return; }
+      try {
+        await post(`/api/admin/bracket/events/${id}/pair`, { soloIdA: brPairFirst.id, soloIdB: soloId });
+        toast('Paired into a team.');
+        brPairFirst = null;
+        renderBrEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  });
+  const pubBtn = document.getElementById('br-publish');
+  if (pubBtn) {
+    pubBtn.onclick = async () => {
+      try {
+        await api(`/api/admin/bracket/events/${id}`, { method: 'PATCH', body: JSON.stringify({ published: !event.published }) });
+        toast(event.published ? 'Night unpublished — sign-ups closed.' : 'Night published — members can join.');
+        renderBrEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const closeBtn = document.getElementById('br-close-signups');
+  if (closeBtn) {
+    closeBtn.onclick = async () => {
+      try {
+        await api(`/api/admin/bracket/events/${id}`, { method: 'PATCH', body: JSON.stringify({ published: false }) });
+        toast('Sign-ups closed.');
+        renderBrEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  if (!brScoreMatchId) {
+    refreshTimer = setInterval(() => {
+      // Don't wipe a join in progress — if the viewer is typing in the
+      // join box, skip this refresh cycle.
+      const ae = document.activeElement;
+      if (ae && ae.closest && ae.closest('#br-join-box')) return;
+      renderBrEvent(id);
+    }, 30000);
+  }
+}
+
+// Dedicated one-match score screen, mirroring the round robin flow:
+// stacked names (with seed chips), plain score boxes, white card.
+function renderBrScoreView(id, m, byId, num, title) {
+  const t1 = byId.get(m.team1_id);
+  const t2 = byId.get(m.team2_id);
+  const teamLine = (t) => (t ? `<span class="br-seed">#${t.seed}</span>${esc(t.label)}` : '—');
+  const scored = m.score1 != null;
+  app.innerHTML = `
+    <div class="match-card">
+      <h3>Match ${num} · ${esc(title)} · Game ${m.game_no}</h3>
+      <p class="muted">Games to ${m.target_score}</p>
+      <div class="teams">${teamLine(t1)}</div>
+      <div class="score-row">
+        <input type="text" inputmode="numeric" id="br-s1" value="${scored ? m.score1 : ''}" placeholder="—" aria-label="Team 1 score">
+      </div>
+      <div class="vs" style="text-align:center">VS</div>
+      <div class="teams">${teamLine(t2)}</div>
+      <div class="score-row">
+        <input type="text" inputmode="numeric" id="br-s2" value="${scored ? m.score2 : ''}" placeholder="—" aria-label="Team 2 score">
+      </div>
+      <div class="score-row">
+        <button class="btn" id="br-svSave">Save score</button>
+        ${scored ? `<button class="btn secondary small" id="br-svClear">Clear</button>` : ''}
+        <button class="btn secondary" id="br-svBack">Back</button>
+      </div>
+    </div>`;
+  document.getElementById('br-svBack').onclick = () => { brScoreMatchId = null; renderBrEvent(id); };
+  document.getElementById('br-svSave').onclick = async () => {
+    const s1 = document.getElementById('br-s1').value;
+    const s2 = document.getElementById('br-s2').value;
+    const n1 = s1 === '' ? null : +s1;
+    const n2 = s2 === '' ? null : +s2;
+    if (n1 == null || n2 == null) { toast('Enter both scores.'); return; }
+    if (!Number.isInteger(n1) || !Number.isInteger(n2) || n1 < 0 || n2 < 0 || n1 > 30 || n2 > 30) { toast('Scores must be whole numbers from 0 to 30.'); return; }
+    if (n1 === n2) { toast('Scores cannot tie.'); return; }
+    if (Math.max(n1, n2) < m.target_score) { toast(`One side must reach ${m.target_score} (games to ${m.target_score}).`); return; }
+    if (Math.max(n1, n2) > m.target_score) { toast(`First to ${m.target_score} — the game ends at ${m.target_score}.`); return; }
+    try {
+      await post(`/api/bracket/events/${id}/matches/${m.id}/score`, { score1: n1, score2: n2 });
+      toast('Score saved.');
+      brScoreMatchId = null;
+      renderBrEvent(id);
+    } catch (e) { toast(e.message); }
+  };
+  const clearBtn = document.getElementById('br-svClear');
+  if (clearBtn) {
+    clearBtn.onclick = async () => {
+      try {
+        await post(`/api/bracket/events/${id}/matches/${m.id}/score`, { score1: null, score2: null });
+        toast('Score cleared.');
+        brScoreMatchId = null;
+        renderBrEvent(id);
       } catch (e) { toast(e.message); }
     };
   }
