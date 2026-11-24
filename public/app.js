@@ -1757,7 +1757,7 @@ async function renderAdminBody(leagues, league, me) {
     const { registrations } = await api(`/api/admin/leagues/${league.id}/registrations`);
     regsHtml = registrations.map((r) => `
       <div class="person-row"><span class="who"><span class="nm">${esc(r.name)}</span>
-        <div class="fp">${r.self_rated ? `Self-rated ${r.dupr_rating ?? ''}` : `DUPR ${esc(r.dupr_id || '—')} · ${r.dupr_rating ?? ''}`} · ${r.membership_type === 'member' ? 'YMCA member $20' : 'Non-member $50'} · ${r.status}${r.fee_waived ? ' · <span class="fee-waived">Fee waived</span>' : ''}</div>
+        <div class="fp">${r.self_rated ? `Self-rated ${r.dupr_rating ?? ''}` : `DUPR ${esc(r.dupr_id || '—')} · ${r.dupr_rating ?? ''}`} · ${r.membership_type === 'member' ? 'YMCA member $20' : 'Non-member $40'} · ${r.status}${r.fee_waived ? ' · <span class="fee-waived">Fee waived</span>' : ''}</div>
         <div class="fp">${esc(r.email || '')}${r.email && r.phone ? ' · ' : ''}${esc(fmtPhone(r.phone))}</div></span>
         <span class="rowbtns">
           ${r.status === 'pending' ? `<button class="btn small" data-reg-confirm="${r.id}">Confirm</button>` : ''}
@@ -2710,7 +2710,7 @@ function announceHtml({ league, sessions, members, memberCount, withEmail, withP
     `Game days:`,
     ...dayLines.map((d) => `• ${d} at ${fmtClock(league.time)}`),
     ``,
-    `Joining costs $20 (YMCA member) / $50 (non-member), paid on ReClique: ${RECLIQUE_URL}`,
+    `Joining costs $20 (YMCA member) / $40 (non-member), paid on ReClique: ${RECLIQUE_URL}`,
     ``,
     `Three steps to join:`,
     `1. Get a free DUPR account: ${DUPR_SIGNUP_URL}`,
@@ -2725,14 +2725,14 @@ function announceHtml({ league, sessions, members, memberCount, withEmail, withP
     `<p><strong>A new MPA league is open: ${esc(league.name)}</strong></p>`,
     `<p>${esc(league.type)} · Skill ${esc(league.skill)} · ${esc(league.format)}<br>${esc(league.day)}s at ${esc(fmtClock(league.time))} · Season ${esc(league.season || 'not set')} · ${fmtDateShort(league.start_date)} – ${fmtDateShort(league.stop_date)}<br>At the YMCA, 601 26th Ave SE, Moultrie, GA 31768</p>`,
     `<p><strong>Game days:</strong><br>${dayLines.map((d) => `• ${esc(d)} at ${esc(fmtClock(league.time))}`).join('<br>')}</p>`,
-    `<p>Joining costs $20 (YMCA member) / $50 (non-member), paid on ReClique: <a href="${RECLIQUE_URL}">${RECLIQUE_URL}</a></p>`,
+    `<p>Joining costs $20 (YMCA member) / $40 (non-member), paid on ReClique: <a href="${RECLIQUE_URL}">${RECLIQUE_URL}</a></p>`,
     `<p><strong>Three steps to join:</strong><br>1. Get a free DUPR account: <a href="${DUPR_SIGNUP_URL}">${DUPR_SIGNUP_URL}</a><br>2. Become a free MPA member<br>3. Join the league — sign up here: <a href="${APP_URL}/#/join/${league.id}">${APP_URL}/#/join/${league.id}</a></p>`,
     `<p><em>Tip: if the DUPR link won't open from your email or text, copy it and paste it into Safari.</em></p>`,
     `<p>Moultrie Pickleball Association</p>`,
   ].join('');
   const textDraft = [
     `New MPA league: ${league.name} — ${league.format}, ${league.day}s ${fmtClock(league.time)} at the YMCA in Moultrie.`,
-    `Starts ${fmtDateShort(league.start_date)}, 8 weeks. $20 member / $50 non-member.`,
+    `Starts ${fmtDateShort(league.start_date)}, 8 weeks. $20 member / $40 non-member.`,
     `Sign up (about 2 minutes): ${APP_URL}/#/join/${league.id}`,
     `Need a DUPR account first (free): ${DUPR_SIGNUP_URL}`,
     `Tip: if the DUPR link won't open from your email or text, copy it and paste it into Safari.`,
@@ -2778,7 +2778,7 @@ function announceAllHtml({ leagues, members, memberCount, withEmail, withPhone }
     ``,
     ...(open.length ? leagueLines : [`No leagues are open for registration right now — check back soon.`]),
     ``,
-    `Joining costs $20 (YMCA member) / $50 (non-member), paid on ReClique: ${RECLIQUE_URL}`,
+    `Joining costs $20 (YMCA member) / $40 (non-member), paid on ReClique: ${RECLIQUE_URL}`,
     ``,
     `Three steps to join:`,
     `1. Get a free DUPR account: ${DUPR_SIGNUP_URL}`,
@@ -2792,7 +2792,7 @@ function announceAllHtml({ leagues, members, memberCount, withEmail, withPhone }
   const emailBodyHtml = [
     `<p><strong>New MPA leagues are open — pick the one for your skill and join.</strong></p>`,
     ...(open.length ? [`<p>${open.map((l) => `• <strong>${esc(l.name)}</strong> — ${esc(l.type)} · Skill ${esc(l.skill)} · ${esc(l.format)}<br>${esc(l.day)}s ${esc(fmtClock(l.time))} · ${fmtDateShort(l.start_date)} – ${fmtDateShort(l.stop_date)} · ${l.player_count ?? ''} player(s)<br>Join: <a href="${APP_URL}/#/join/${l.id}">${APP_URL}/#/join/${l.id}</a>`).join('<br><br>')}</p>`] : [`<p>No leagues are open for registration right now — check back soon.</p>`]),
-    `<p>Joining costs $20 (YMCA member) / $50 (non-member), paid on ReClique: <a href="${RECLIQUE_URL}">${RECLIQUE_URL}</a></p>`,
+    `<p>Joining costs $20 (YMCA member) / $40 (non-member), paid on ReClique: <a href="${RECLIQUE_URL}">${RECLIQUE_URL}</a></p>`,
     `<p><strong>Three steps to join:</strong><br>1. Get a free DUPR account: <a href="${DUPR_SIGNUP_URL}">${DUPR_SIGNUP_URL}</a><br>2. Become a free MPA member<br>3. Pick your league and join: <a href="${APP_URL}/">${APP_URL}/</a></p>`,
     `<p><em>Tip: if the DUPR link won't open from your email or text, copy it and paste it into Safari.</em></p>`,
     `<p>Moultrie Pickleball Association</p>`,
@@ -2801,7 +2801,7 @@ function announceAllHtml({ leagues, members, memberCount, withEmail, withPhone }
     `New MPA leagues are open — pick the one for your skill and join.`,
     ...open.map((l) => `• ${l.name} (${l.skill}, ${l.day}s ${fmtClock(l.time)})`),
     `See them all and join: ${APP_URL}/`,
-    `$20 member / $50 non-member. Need a DUPR account first (free): ${DUPR_SIGNUP_URL}`,
+    `$20 member / $40 non-member. Need a DUPR account first (free): ${DUPR_SIGNUP_URL}`,
     `Tip: if the DUPR link won't open from your email or text, copy it and paste it into Safari.`,
     `— Moultrie Pickleball Association`,
   ].join('\n');

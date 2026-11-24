@@ -192,7 +192,7 @@ async function main() {
     name: 'Bob Brown', duprId: 'B2C3D4', duprRating: 3.2, membershipType: 'non-member',
     email: 'bob@example.test', phone: '555-0201',
   });
-  check('registration submitted (non-member $50)', reg1.status === 201 && reg1.data.registration.membership_type === 'non-member', JSON.stringify(reg1.data));
+  check('registration submitted (non-member $40)', reg1.status === 201 && reg1.data.registration.membership_type === 'non-member', JSON.stringify(reg1.data));
   check('registration starts pending', reg1.data.registration.status === 'pending');
   check('duplicate pending registration rejected', (await post(`/api/leagues/${leagueA.id}/registrations`, {
     name: 'bob brown', duprId: 'B2C3D4', duprRating: 3.2, membershipType: 'member',
