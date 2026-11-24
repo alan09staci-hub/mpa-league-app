@@ -1664,6 +1664,7 @@ async function renderAmbassadors() {
   app.innerHTML = `
     <div class="admin-watermark" aria-hidden="true"></div>
     <div class="admin-view">
+    <p class="mission-head">Our mission is to promote the development and growth of pickleball within and around our surrounding communities.</p>
     <h1>Ambassadors</h1>
     <p class="muted">Signed in as <strong>${esc(me.name || 'Ambassador')}</strong></p>
     <div class="btnrow"><button class="btn secondary small" id="ambLogoutBtn">Sign out</button></div>
@@ -1672,7 +1673,7 @@ async function renderAmbassadors() {
       <p><strong>${esc(me.name || 'Ambassador')}</strong>${me.duprRating != null ? ` · ${me.selfRated ? `Self-rated ${me.duprRating}` : `DUPR ${me.duprRating}`}` : ''}</p>
     </div>
     <div class="card">
-      <h2>Our mission is to promote the development and growth of pickleball within and around our surrounding communities.</h2>
+      <h2>Pickleball Ambassador helps expand the game by teaching, sharing expertise, providing feedback, and fostering community engagement, all while championing innovation and the love of Pickleball.</h2>
       <ul>${AMBASSADOR_DUTIES.map((d) => `<li>${esc(d)}</li>`).join('')}</ul>
     </div>
     <div class="card">

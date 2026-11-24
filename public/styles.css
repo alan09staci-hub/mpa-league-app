@@ -321,6 +321,7 @@ table.standings tr.you td { background: #fff8e1; }
 .person-row .who .nm.admin-name { color: #d92b2b; }
 .admin-badge { background: var(--black); color: var(--yellow); font-size: 11px; font-weight: 800; letter-spacing: .06em; border-radius: 999px; padding: 2px 8px; margin-left: 6px; vertical-align: middle; white-space: nowrap; }
 .amb-badge { background: var(--green); color: #fff; font-size: 11px; font-weight: 800; letter-spacing: .06em; border-radius: 999px; padding: 2px 8px; margin-left: 6px; vertical-align: middle; white-space: nowrap; }
+.mission-head { font-size: 21px; font-weight: 800; line-height: 1.35; color: #111; margin: 0 0 4px; }
 .level-pick { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
 .level-pick button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); font-size: 15px; cursor: pointer; }
 .level-pick button.picked { background: var(--black); color: var(--yellow); border-color: var(--black); font-weight: 700; }
