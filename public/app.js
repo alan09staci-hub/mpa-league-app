@@ -1612,7 +1612,7 @@ async function renderAdmin() {
 // never grants Admin access (separate cookie/table), and vice versa.
 const AMBASSADOR_DUTIES = [
   'Teaching new players',
-  'Hosting clinics or social events',
+  'Hosting clinics',
   'Managing paddle racks or court flow',
   'Promoting programs on the court or online',
 ];
