@@ -438,3 +438,8 @@ Separation is structural: ambassador tokens live in ambassador_tokens with the m
 Tests (all local, no DB available — no Postgres on this machine, same gap as 007/008/014): node --check OK on auth.js, api.js, people.js, app.js, index.js, db.js. checkAmbassadorPasscode logic tested headless (ok/wrong/not-set, no master even for person 1; admin master behavior unchanged). Express app loads with all 7 ambassador routes registered (92 total routes, was 85) and all 10 admin auth routes intact. Client/server endpoint names match. ReClique mentions unchanged (5 case-sensitive lines, all pre-existing).
 NOT verified: migration 015 never run against a real DB — watch the first Render deploy log for 015 applying; client ambassador flow code-reviewed only, not run in a browser; no live verification yet.
 PENDING: parent pushes via GitHub connector → verify GitHub raw + live md5s, GET /api/ambassador/list returns [], flag a test ambassador + set a passcode + sign in live, then update MEMORY.md.
+
+## 2026-11-24 — Passcode tracking + reset-and-send in the member Edit form
+- Admin → Members → Edit now shows a Passcodes section (Admin and/or Ambassador rows, only for flagged people): Set / Not set status from new has_admin_passcode / has_ambassador_passcode flags on GET /api/admin/members. Passcodes stay hashes-only and can't be read back.
+- Each row has a Reset & text button: type a new passcode (min 4 chars), it saves via the existing POST passcode endpoints and opens the phone's Messages app with a text carrying the new passcode (or shows it on screen when no phone is on file).
+- Setting a passcode now also clears that person's lockout (both admin + ambassador handlers), so a reset passcode works right away even if they were locked out.

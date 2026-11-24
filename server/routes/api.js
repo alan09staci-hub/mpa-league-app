@@ -507,6 +507,9 @@ router.post('/admin/passcodes', auth.requireAdmin, (req, res) =>
        ON CONFLICT (person_id) DO UPDATE SET passcode_hash = $2, updated_at = now()`,
       [personId, auth.hashPasscode(passcode)]
     );
+    // A fresh passcode is a fresh start — clear any lockout so the new
+    // passcode works right away (this is what a reset is for).
+    await auth.clearLoginFailures(personId, 'admin_passcode_attempts').catch(() => {});
     res.json({ ok: true });
   }, req, res)
 );
@@ -640,6 +643,9 @@ router.post('/ambassador/passcodes', auth.requireAdmin, (req, res) =>
        ON CONFLICT (person_id) DO UPDATE SET passcode_hash = $2, updated_at = now()`,
       [personId, auth.hashPasscode(passcode)]
     );
+    // A fresh passcode is a fresh start — clear any lockout so the new
+    // passcode works right away (this is what a reset is for).
+    await auth.clearLoginFailures(personId, 'ambassador_passcode_attempts').catch(() => {});
     res.json({ ok: true });
   }, req, res)
 );

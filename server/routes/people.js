@@ -558,6 +558,8 @@ router.get('/admin/members', auth.requireAdmin, (req, res) =>
       `SELECT m.*, p.updated_at,
          (SELECT COUNT(*)::int FROM member_rating_history h
            WHERE h.person_id = m.person_id AND h.changed_by <> 'system') AS rating_changes,
+         EXISTS (SELECT 1 FROM admin_passcodes ap WHERE ap.person_id = m.person_id) AS has_admin_passcode,
+         EXISTS (SELECT 1 FROM ambassador_passcodes bp WHERE bp.person_id = m.person_id) AS has_ambassador_passcode,
          COALESCE((SELECT json_agg(l.name)
           FROM player_leagues pl JOIN leagues l ON l.id = pl.league_id
          WHERE pl.person_id = m.person_id), '[]'::json) AS leagues

@@ -2487,6 +2487,16 @@ async function renderAdminBody(leagues, league, me) {
         <p class="fineprint">Admins show their name in red with an ADMIN badge on the Members list.</p>
         <label><input type="checkbox" id="me-ambassador" ${m.is_ambassador ? 'checked' : ''}> Make ambassador</label>
         <p class="fineprint">Ambassadors show an AMBASSADOR badge on the Members list, and sign in on the Ambassadors tab with their own passcode, set in Admin → Ambassador passcodes.</p>
+        ${m.is_admin || m.is_ambassador ? `<p class="fineprint" style="margin-top:12px"><strong>Passcodes</strong> — stored as hashes, so they can't be read back. Reset one to give them a new one, and text it to them.</p>
+        ${m.is_admin ? `<div>
+          <label>Admin passcode — <span id="me-admin-pc-status">${m.has_admin_passcode ? 'Set' : 'Not set'}</span></label>
+          <div class="field-row"><div><input type="password" id="me-admin-pc" placeholder="New passcode (at least 4 characters)" autocomplete="new-password"></div><div style="align-self:end"><button class="btn secondary small" id="me-admin-pc-reset">Reset &amp; text</button></div></div>
+        </div>` : ''}
+        ${m.is_ambassador ? `<div>
+          <label>Ambassador passcode — <span id="me-amb-pc-status">${m.has_ambassador_passcode ? 'Set' : 'Not set'}</span></label>
+          <div class="field-row"><div><input type="password" id="me-amb-pc" placeholder="New passcode (at least 4 characters)" autocomplete="new-password"></div><div style="align-self:end"><button class="btn secondary small" id="me-amb-pc-reset">Reset &amp; text</button></div></div>
+        </div>` : ''}
+        <p class="fineprint" id="me-pc-msg"></p>` : ''}
         <p class="fineprint" style="margin-top:12px"><strong>Rating history</strong></p>
         <div id="me-history"><p class="fineprint">Loading rating history…</p></div>
         <div class="btnrow"><button class="btn small" id="me-save">Save member</button></div>
@@ -2495,6 +2505,36 @@ async function renderAdminBody(leagues, league, me) {
       // back to digits, so the stored value stays digits-only.
       const mePhone = document.getElementById('me-phone');
       if (mePhone) mePhone.addEventListener('input', () => { mePhone.value = fmtPhone(mePhone.value); });
+      // Reset a passcode and text the new one to them. The old passcode
+      // can't be read back (hashes only), so a forgotten one is replaced,
+      // never recovered. Resetting also clears any lockout, so the new
+      // passcode works right away.
+      const pcReset = async (kind) => {
+        const msg = document.getElementById('me-pc-msg');
+        const input = document.getElementById(kind === 'admin' ? 'me-admin-pc' : 'me-amb-pc');
+        if (!input || !msg) return;
+        const passcode = input.value.trim();
+        if (passcode.length < 4) { msg.textContent = 'Passcode must be at least 4 characters.'; return; }
+        const phone = (document.getElementById('me-phone').value || '').replace(/\D/g, '');
+        try {
+          await post(kind === 'admin' ? '/api/admin/passcodes' : '/api/ambassador/passcodes', { personId: m.person_id, passcode });
+          const status = document.getElementById(kind === 'admin' ? 'me-admin-pc-status' : 'me-amb-pc-status');
+          if (status) status.textContent = 'Set';
+          input.value = '';
+          const first = (m.name || 'there').split(' ')[0];
+          const label = kind === 'admin' ? 'Admin' : 'Ambassador';
+          const tab = kind === 'admin' ? 'Admin' : 'Ambassadors';
+          const text = `Hi ${first}, your MPA ${label} passcode is ${passcode}. Sign in on the ${tab} tab with it.`;
+          if (phone) {
+            msg.textContent = 'New passcode saved — your text app is opening. Send it when ready.';
+            location.href = `sms:${phone}?&body=${encodeURIComponent(text)}`;
+          } else {
+            msg.textContent = `New passcode saved: ${passcode} — no phone on file, so send it yourself.`;
+          }
+        } catch (e) { msg.textContent = e.message; }
+      };
+      document.getElementById('me-admin-pc-reset')?.addEventListener('click', () => pcReset('admin'));
+      document.getElementById('me-amb-pc-reset')?.addEventListener('click', () => pcReset('ambassador'));
     // Rating history timeline, with a filter by rating type. The baseline
     // ('system') reads as "recorded as X" — it is the go-live starting
     // point, not a change. Past changes before tracking started are not
