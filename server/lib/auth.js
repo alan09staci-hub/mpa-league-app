@@ -37,6 +37,12 @@ function hashToken(token) {
 // signs in with their own passcode, stored as a SHA-256 hash only.
 const MASTER_PERSON_ID = 1;
 
+// The lockout tables (migration 011 for admins, 015 for ambassadors).
+// `table` is always one of these two internal constants, never user input.
+function lockTable(table) {
+  return table === 'ambassador_passcode_attempts' ? table : 'admin_passcode_attempts';
+}
+
 function hashPasscode(candidate) {
   return crypto.createHash('sha256').update(String(candidate)).digest('hex');
 }
@@ -73,9 +79,10 @@ const MAX_LOGIN_FAILURES = 5;
 const LOGIN_LOCK_MINUTES = 15;
 const LOGIN_FAILURE_WINDOW_MINUTES = 15;
 
-async function loginLockStatus(personId) {
+async function loginLockStatus(personId, table) {
+  const t = lockTable(table);
   const { rows } = await pool.query(
-    'SELECT failed_count, locked_until FROM admin_passcode_attempts WHERE person_id = $1',
+    `SELECT failed_count, locked_until FROM ${t} WHERE person_id = $1`,
     [personId]
   );
   if (!rows.length) return { locked: false, failedCount: 0 };
@@ -86,12 +93,13 @@ async function loginLockStatus(personId) {
   return { locked: false, failedCount: rows[0].failed_count };
 }
 
-async function recordLoginFailure(personId) {
+async function recordLoginFailure(personId, table) {
+  const t = lockTable(table);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(
-      'SELECT failed_count, last_failed_at FROM admin_passcode_attempts WHERE person_id = $1 FOR UPDATE',
+      `SELECT failed_count, last_failed_at FROM ${t} WHERE person_id = $1 FOR UPDATE`,
       [personId]
     );
     const prev = rows[0];
@@ -106,7 +114,7 @@ async function recordLoginFailure(personId) {
       ? new Date(Date.now() + LOGIN_LOCK_MINUTES * 60 * 1000)
       : null;
     await client.query(
-      `INSERT INTO admin_passcode_attempts (person_id, failed_count, last_failed_at, locked_until)
+      `INSERT INTO ${t} (person_id, failed_count, last_failed_at, locked_until)
        VALUES ($1, $2, now(), $3)
        ON CONFLICT (person_id) DO UPDATE SET failed_count = $2, last_failed_at = now(), locked_until = $3`,
       [personId, failedCount, lockedUntil]
@@ -121,8 +129,9 @@ async function recordLoginFailure(personId) {
   }
 }
 
-async function clearLoginFailures(personId) {
-  await pool.query('DELETE FROM admin_passcode_attempts WHERE person_id = $1', [personId]);
+async function clearLoginFailures(personId, table) {
+  const t = lockTable(table);
+  await pool.query(`DELETE FROM ${t} WHERE person_id = $1`, [personId]);
 }
 
 async function issueToken(personId) {
@@ -198,6 +207,98 @@ async function isAdmin(req) {
   return passcodeConfigured() && (await isValidToken(tokenFromReq(req)));
 }
 
+// ---- Ambassadors (migration 015) ----
+// Mirrors the admin passcode/token system above, but there is NO master
+// passcode: an ambassador signs in only with their own passcode.
+// Ambassador tokens live in ambassador_tokens and travel in the
+// mpa_ambassador cookie — an ambassador token never grants Admin access,
+// and an admin token never grants ambassador access (separate tables,
+// separate cookies, separate helpers throughout).
+
+// Same shape as checkAdminPasscode, minus the master: 'ok', 'not-set'
+// (this ambassador has no personal passcode yet), or 'wrong'.
+function checkAmbassadorPasscode({ candidate, storedHash }) {
+  if (storedHash && verifyPasscodeHash(candidate, storedHash)) return 'ok';
+  if (!storedHash) return 'not-set';
+  return 'wrong';
+}
+
+async function issueAmbToken(personId) {
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
+  await pool.query(
+    'INSERT INTO ambassador_tokens (token_hash, expires_at, person_id) VALUES ($1, $2, $3)',
+    [hashToken(token), expiresAt, personId || null]
+  );
+  return token;
+}
+
+async function revokeAmbToken(token) {
+  if (!token) return;
+  await pool.query('DELETE FROM ambassador_tokens WHERE token_hash = $1', [hashToken(token)]);
+}
+
+async function isValidAmbToken(token) {
+  if (!token) return false;
+  const { rows } = await pool.query(
+    'SELECT expires_at FROM ambassador_tokens WHERE token_hash = $1',
+    [hashToken(token)]
+  );
+  if (!rows.length) return false;
+  if (new Date(rows[0].expires_at).getTime() <= Date.now()) {
+    await pool.query('DELETE FROM ambassador_tokens WHERE token_hash = $1', [hashToken(token)]);
+    return false;
+  }
+  // Opportunistic cleanup of expired tokens.
+  await pool.query('DELETE FROM ambassador_tokens WHERE expires_at <= now()').catch(() => {});
+  return true;
+}
+
+function ambTokenFromReq(req) {
+  const cookie = req.headers.cookie || '';
+  const m = cookie.match(/(?:^|;\s*)mpa_ambassador=([^;]+)/);
+  if (m) return decodeURIComponent(m[1]);
+  const auth = req.headers.authorization || '';
+  if (auth.startsWith('Bearer ')) return auth.slice(7);
+  return null;
+}
+
+// Who is signed in as an ambassador with this request, or null.
+// Returns { personId, name, duprRating, selfRated } — the rating is what
+// the Ambassador home shows under "Who you are".
+async function ambassadorIdentity(req) {
+  const token = ambTokenFromReq(req);
+  if (!token) return null;
+  if (!(await isValidAmbToken(token))) return null;
+  const { rows } = await pool.query(
+    `SELECT t.person_id, p.name, m.dupr_rating, m.self_rated
+       FROM ambassador_tokens t
+       LEFT JOIN people p ON p.id = t.person_id
+       LEFT JOIN members m ON m.person_id = t.person_id
+      WHERE t.token_hash = $1`,
+    [hashToken(token)]
+  );
+  if (!rows.length) return null;
+  return {
+    personId: rows[0].person_id,
+    name: rows[0].name || null,
+    duprRating: rows[0].dupr_rating,
+    selfRated: rows[0].self_rated,
+  };
+}
+
+async function requireAmbassador(req, res, next) {
+  if (!(await isValidAmbToken(ambTokenFromReq(req)))) {
+    return res.status(401).json({ error: 'Ambassador sign-in required.' });
+  }
+  return next();
+}
+
+// Optional: true when the request carries a valid ambassador token.
+async function isAmbassador(req) {
+  return isValidAmbToken(ambTokenFromReq(req));
+}
+
 module.exports = {
   passcodeConfigured,
   checkPasscode,
@@ -215,4 +316,12 @@ module.exports = {
   loginLockStatus,
   recordLoginFailure,
   clearLoginFailures,
+  checkAmbassadorPasscode,
+  issueAmbToken,
+  revokeAmbToken,
+  isValidAmbToken,
+  ambTokenFromReq,
+  ambassadorIdentity,
+  requireAmbassador,
+  isAmbassador,
 };

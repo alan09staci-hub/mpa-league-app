@@ -605,6 +605,10 @@ router.patch('/admin/members/:id', auth.requireAdmin, (req, res) =>
     const singlesRating = cleanRating(req.body.singlesRating);
     const skinnyRating = cleanRating(req.body.skinnyRating);
     const isAdmin = req.body.isAdmin === true ? true : req.body.isAdmin === false ? false : null;
+    // Same shape as isAdmin, but with NO last-ambassador guard: with no
+    // ambassador flagged, the Ambassadors tab just shows "no ambassadors
+    // flagged yet" — nothing breaks.
+    const isAmbassador = req.body.isAmbassador === true ? true : req.body.isAmbassador === false ? false : null;
     const idErr = duprIdError(duprId, false);
     if (idErr) throw err(400, idErr);
     if (duprProfileUrl && !/^https:\/\//i.test(duprProfileUrl)) {
@@ -630,10 +634,11 @@ router.patch('/admin/members/:id', auth.requireAdmin, (req, res) =>
          height = COALESCE($13, height), handed = COALESCE($14, handed),
          singles_rating = COALESCE($15, singles_rating), skinny_rating = COALESCE($16, skinny_rating),
          self_rated = CASE WHEN $4 IS NOT NULL THEN FALSE ELSE self_rated END,
-         is_admin = COALESCE($17, is_admin)
+         is_admin = COALESCE($17, is_admin),
+         is_ambassador = COALESCE($18, is_ambassador)
        WHERE id = $1`,
       [id, email, phone, duprId, duprRating, duprProfileUrl, photoUrl, resides, age, country,
-       nickname, gender, height, handed, singlesRating, skinnyRating, isAdmin]
+       nickname, gender, height, handed, singlesRating, skinnyRating, isAdmin, isAmbassador]
     );
     if (m.person_id) {
       await pool.query(

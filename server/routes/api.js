@@ -520,6 +520,139 @@ router.delete('/admin/passcodes/:personId', auth.requireAdmin, (req, res) =>
   }, req, res)
 );
 
+// ---------------------------------------------------------------- ambassador auth
+// Mirrors the admin sign-in system above (migration 015), but there is NO
+// master passcode: an ambassador signs in only with their own passcode, and
+// an ambassador token never grants Admin access (separate table + cookie).
+
+router.post('/ambassador/login', (req, res) =>
+  handle(async () => {
+    const personId = asInt(req.body.personId);
+    if (!personId) {
+      return res.status(400).json({ error: 'Pick an ambassador to sign in as.' });
+    }
+    // Only a flagged ambassador can sign in — unflagging someone (Make
+    // ambassador off) takes their passcode away immediately.
+    const { rows: memberRows } = await pool.query(
+      'SELECT m.person_id, m.name, m.is_ambassador FROM members m WHERE m.person_id = $1',
+      [personId]
+    );
+    const member = memberRows[0];
+    if (!member || !member.is_ambassador) {
+      return res.status(401).json({ error: 'This person is not an Ambassador.' });
+    }
+    // Lockout is per ambassador (migration 015): one ambassador's wrong
+    // guesses never lock another ambassador out. A lock-table error must
+    // not lock anyone out: fail open to the passcode check, which is the
+    // real gate; the lockout is rate-limiting only.
+    const lock = await auth.loginLockStatus(personId, 'ambassador_passcode_attempts').catch(() => ({ locked: false, failedCount: 0 }));
+    if (lock.locked) {
+      const mins = Math.max(1, Math.ceil((lock.lockedUntil.getTime() - Date.now()) / 60000));
+      return res.status(429).json({ error: `Too many wrong passcodes. Try again in ${mins} minute${mins === 1 ? '' : 's'}.` });
+    }
+    const { rows: passRows } = await pool.query(
+      'SELECT passcode_hash FROM ambassador_passcodes WHERE person_id = $1',
+      [personId]
+    );
+    const verdict = auth.checkAmbassadorPasscode({
+      candidate: req.body.passcode,
+      storedHash: passRows[0] ? passRows[0].passcode_hash : null,
+    });
+    if (verdict === 'not-set') {
+      return res.status(401).json({ error: 'No passcode set for this ambassador yet — ask an admin to set one.' });
+    }
+    if (verdict !== 'ok') {
+      const result = await auth.recordLoginFailure(personId, 'ambassador_passcode_attempts').catch(() => null);
+      if (result && result.lockedUntil) {
+        return res.status(429).json({ error: 'Too many wrong passcodes. Try again in 15 minutes.' });
+      }
+      return res.status(401).json({ error: 'Wrong passcode.' });
+    }
+    await auth.clearLoginFailures(personId, 'ambassador_passcode_attempts').catch(() => {});
+    const token = await auth.issueAmbToken(personId);
+    res.setHeader(
+      'Set-Cookie',
+      `mpa_ambassador=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${12 * 3600}`
+    );
+    res.json({ ok: true, name: member.name });
+  }, req, res)
+);
+
+router.post('/ambassador/logout', async (req, res) => {
+  try { await auth.revokeAmbToken(auth.ambTokenFromReq(req)); } catch { /* already gone */ }
+  res.setHeader('Set-Cookie', 'mpa_ambassador=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
+  res.json({ ok: true });
+});
+
+router.get('/ambassador/me', async (req, res) => {
+  const identity = await auth.ambassadorIdentity(req).catch(() => null);
+  res.json({
+    ambassador: Boolean(identity),
+    name: identity ? identity.name : null,
+    personId: identity ? identity.personId : null,
+    duprRating: identity ? identity.duprRating : null,
+    selfRated: identity ? identity.selfRated : null,
+  });
+});
+
+// Public: the names of the flagged ambassadors, for the sign-in picker.
+// Names are public in the member directory already — this exposes nothing
+// new, and never includes passcode status.
+router.get('/ambassador/list', (req, res) =>
+  handle(async () => {
+    const { rows } = await pool.query(
+      'SELECT person_id, name FROM members WHERE is_ambassador = TRUE ORDER BY name ASC'
+    );
+    res.json({ ambassadors: rows });
+  }, req, res)
+);
+
+// ---- per-ambassador passcodes (Admin-only management) ----
+
+router.get('/ambassador/passcodes', auth.requireAdmin, (req, res) =>
+  handle(async () => {
+    const { rows } = await pool.query(
+      `SELECT m.person_id, m.name,
+              EXISTS (SELECT 1 FROM ambassador_passcodes p WHERE p.person_id = m.person_id) AS has_passcode
+         FROM members m WHERE m.is_ambassador = TRUE ORDER BY m.name ASC`
+    );
+    res.json({ ambassadors: rows });
+  }, req, res)
+);
+
+router.post('/ambassador/passcodes', auth.requireAdmin, (req, res) =>
+  handle(async () => {
+    const personId = asInt(req.body.personId);
+    const passcode = req.body.passcode == null ? '' : String(req.body.passcode);
+    if (!personId) return res.status(400).json({ error: 'Pick an ambassador.' });
+    if (passcode.length < 4) {
+      return res.status(400).json({ error: 'Passcode must be at least 4 characters.' });
+    }
+    const { rows } = await pool.query(
+      'SELECT person_id FROM members WHERE person_id = $1 AND is_ambassador = TRUE',
+      [personId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'That person is not an Ambassador.' });
+    // Only the hash is stored — the plain passcode is never saved or returned.
+    await pool.query(
+      `INSERT INTO ambassador_passcodes (person_id, passcode_hash, updated_at)
+       VALUES ($1, $2, now())
+       ON CONFLICT (person_id) DO UPDATE SET passcode_hash = $2, updated_at = now()`,
+      [personId, auth.hashPasscode(passcode)]
+    );
+    res.json({ ok: true });
+  }, req, res)
+);
+
+router.delete('/ambassador/passcodes/:personId', auth.requireAdmin, (req, res) =>
+  handle(async () => {
+    const personId = asInt(req.params.personId);
+    if (!personId) return res.status(400).json({ error: 'Pick an ambassador.' });
+    await pool.query('DELETE FROM ambassador_passcodes WHERE person_id = $1', [personId]);
+    res.json({ ok: true });
+  }, req, res)
+);
+
 // ---- admin activity (sign-ins; Admin-only) ----
 
 router.get('/admin/activity', auth.requireAdmin, (req, res) =>

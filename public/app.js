@@ -317,6 +317,7 @@ function route() {
   const h = raw.split('?')[0];
   const parts = h.split('/').filter(Boolean);
   if (parts[0] === 'admin') return renderAdmin();
+  if (parts[0] === 'ambassadors') return renderAmbassadors();
   if (parts[0] === 'members' && parts[1]) return renderMemberProfile(+parts[1]);
   if (parts[0] === 'members') return renderMembersPage();
   if (parts[0] === 'join') return renderJoinPage(parts[1] ? +parts[1] : null);
@@ -1604,6 +1605,106 @@ async function renderAdmin() {
   renderAdminBody(leagues, league, me);
 }
 
+// ---------- ambassadors ----------
+// Ambassadors sign in with their own passcode, separate from Admin: the
+// tab sits in the header for everyone to see, the sign-in picks a flagged
+// ambassador and checks the ambassador passcode only. An ambassador token
+// never grants Admin access (separate cookie/table), and vice versa.
+const AMBASSADOR_DUTIES = [
+  'Teaching new players',
+  'Hosting clinics or social events',
+  'Managing paddle racks or court flow',
+  'Promoting programs on the court or online',
+];
+
+async function renderAmbassadors() {
+  clearInterval(refreshTimer);
+  const me = await api('/api/ambassador/me').catch(() => ({ ambassador: false }));
+  if (!me.ambassador) {
+    const list = await api('/api/ambassador/list').catch(() => ({ ambassadors: [] }));
+    const ambassadors = list.ambassadors || [];
+    app.innerHTML = `
+      <div class="admin-watermark" aria-hidden="true"></div>
+      <div class="admin-view">
+      <h1>Ambassadors</h1>
+      <p class="muted">Ambassadors only — pick your name and enter your passcode.</p>
+      <div class="card">
+        ${ambassadors.length ? `
+        <label>Sign in as</label>
+        <select id="loginAmb">${ambassadors.map((a) => `<option value="${a.person_id}">${esc(a.name)}</option>`).join('')}</select>
+        <label>Ambassador passcode</label>
+        <input type="password" id="ambPasscode" autocomplete="current-password" placeholder="Passcode">
+        <div class="btnrow"><button class="btn" id="ambLoginBtn">Sign in</button></div>
+        <p class="fineprint" id="ambLoginErr"></p>
+        <p class="fineprint">Each ambassador has their own passcode. Forgot yours? Ask an admin to set a new one for you.</p>`
+        : '<p class="muted">No ambassadors are flagged yet — an admin flags one in Admin → Members → Edit.</p>'}
+      </div></div>`;
+    const loginBtn = document.getElementById('ambLoginBtn');
+    if (loginBtn) {
+      loginBtn.onclick = async () => {
+        const personId = +document.getElementById('loginAmb').value;
+        const passcode = document.getElementById('ambPasscode').value;
+        try {
+          const out = await post('/api/ambassador/login', { personId, passcode });
+          toast(`Signed in as ${out.name || 'Ambassador'}.`);
+          renderAmbassadors();
+        } catch (e) {
+          document.getElementById('ambLoginErr').textContent = e.message;
+        }
+      };
+      document.getElementById('ambPasscode').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') loginBtn.click();
+      });
+    }
+    return;
+  }
+
+  const appUrl = `${location.origin}/#/`;
+  const joinUrl = `${location.origin}/how-joining-works.html`;
+  app.innerHTML = `
+    <div class="admin-watermark" aria-hidden="true"></div>
+    <div class="admin-view">
+    <h1>Ambassadors</h1>
+    <p class="muted">Signed in as <strong>${esc(me.name || 'Ambassador')}</strong></p>
+    <div class="btnrow"><button class="btn secondary small" id="ambLogoutBtn">Sign out</button></div>
+    <div class="card">
+      <h2>Who you are</h2>
+      <p><strong>${esc(me.name || 'Ambassador')}</strong>${me.duprRating != null ? ` · ${me.selfRated ? `Self-rated ${me.duprRating}` : `DUPR ${me.duprRating}`}` : ''}</p>
+    </div>
+    <div class="card">
+      <h2>What ambassadors do</h2>
+      <ul>${AMBASSADOR_DUTIES.map((d) => `<li>${esc(d)}</li>`).join('')}</ul>
+    </div>
+    <div class="card">
+      <h2>Who you've brought in</h2>
+      <p class="muted">Nobody yet — invite tracking isn't built yet.</p>
+    </div>
+    <div class="card">
+      <h2>Your invite tools</h2>
+      <p>Share the app with someone new — they join MPA from here.</p>
+      <div class="btnrow"><button class="btn secondary small" id="ambCopyApp">Copy app link</button></div>
+      <p class="fineprint">${esc(appUrl)}</p>
+      <div class="btnrow"><button class="btn secondary small" id="ambCopyJoin">Copy how-joining link</button></div>
+      <p class="fineprint">${esc(joinUrl)}</p>
+      <p class="fineprint" id="ambCopyMsg"></p>
+    </div></div>`;
+  document.getElementById('ambLogoutBtn').onclick = async () => {
+    await post('/api/ambassador/logout', {});
+    renderAmbassadors();
+  };
+  const copyText = async (text, label) => {
+    const msg = document.getElementById('ambCopyMsg');
+    try {
+      await navigator.clipboard.writeText(text);
+      msg.textContent = `${label} copied.`;
+    } catch {
+      msg.textContent = `Copy didn't work — long-press the link above to copy it.`;
+    }
+  };
+  document.getElementById('ambCopyApp').onclick = () => copyText(appUrl, 'App link');
+  document.getElementById('ambCopyJoin').onclick = () => copyText(joinUrl, 'How-joining link');
+}
+
 function section(key, title, desc, innerHtml) {
   const open = !!adminSections[key];
   return `<div class="admin-section sec-${key}">
@@ -1720,7 +1821,7 @@ async function renderAdminBody(leagues, league, me) {
   // leagues live this used to read "Pick a league above.")
   const { members } = await api('/api/admin/members');
   membersHtml = members.map((m) => `
-    <div class="person-row" data-mid="${m.id}"><span class="who"><span class="nm${m.is_admin ? ' admin-name' : ''}">${esc(m.name)}${m.is_admin ? ' <span class="admin-badge">ADMIN</span>' : ''}</span>
+    <div class="person-row" data-mid="${m.id}"><span class="who"><span class="nm${m.is_admin ? ' admin-name' : ''}">${esc(m.name)}${m.is_admin ? ' <span class="admin-badge">ADMIN</span>' : ''}${m.is_ambassador ? ' <span class="amb-badge">AMBASSADOR</span>' : ''}</span>
       <div class="fp">${m.self_rated ? `Self-rated ${m.dupr_rating ?? ''}` : `DUPR ${esc(m.dupr_id || '—')} · ${m.dupr_rating ?? ''}`}${m.leagues && m.leagues.length ? ` · Leagues: ${m.leagues.map(esc).join(', ')}` : ''}</div>
       <div class="fp">${esc(m.email || '')}${m.email && m.phone ? ' · ' : ''}${esc(fmtPhone(m.phone))} · joined ${fmtDateShort(m.joined_at)}${m.updated_at ? ` · updated ${fmtDateShort(m.updated_at)}` : ''}${m.rating_changes ? ` · ${m.rating_changes} rating change${m.rating_changes === 1 ? '' : 's'}` : ''}</div></span>
       <span class="rowbtns">
@@ -1742,6 +1843,20 @@ async function renderAdminBody(leagues, league, me) {
         ${a.has_passcode ? `<button class="btn secondary small" data-pc-del="${a.person_id}">Remove</button>` : ''}
       </span></div>`).join('') || '<p class="muted">No admins flagged yet.</p>'}
     <p class="fineprint" id="pc-msg"></p>`;
+
+  // ---- ambassador passcodes (Admin sets each ambassador's own passcode) ----
+  const { ambassadors: passcodeAmbassadors } = await api('/api/ambassador/passcodes');
+  const ambPasscodesHtml = `
+    <p class="fineprint">Each ambassador signs in on the Ambassadors tab with their own passcode. Only the scrambled form of a passcode is ever stored — nobody can look one up. Forgot yours? An admin sets a new one for you here.</p>
+    ${passcodeAmbassadors.map((a) => `
+    <div class="person-row"><span class="who"><span class="nm">${esc(a.name)}</span>
+      <div class="fp">${a.has_passcode ? 'Passcode set' : 'No passcode set yet'}</div></span>
+      <span class="rowbtns">
+        <input type="password" id="apc-${a.person_id}" placeholder="New passcode" autocomplete="new-password" style="width:140px">
+        <button class="btn secondary small" data-apc-set="${a.person_id}">${a.has_passcode ? 'Change' : 'Set'}</button>
+        ${a.has_passcode ? `<button class="btn secondary small" data-apc-del="${a.person_id}">Remove</button>` : ''}
+      </span></div>`).join('') || '<p class="muted">No ambassadors flagged yet.</p>'}
+    <p class="fineprint" id="apc-msg"></p>`;
 
   // ---- admin activity (sign-ins; refreshes every 30 seconds below) ----
   const { activity } = await api('/api/admin/activity');
@@ -1942,6 +2057,7 @@ async function renderAdminBody(leagues, league, me) {
     section('roundrobin', 'Round Robin', 'Create a one-off round robin night — members join themselves once it is published.', rrCreateHtml) +
     section('bracket', 'Bracket', 'Create a one-off double-elimination bracket night — members join themselves once it is published.', brCreateHtml) +
     section('passcodes', 'Admin passcodes', 'Each admin signs in with their own passcode — set one, change one, or remove one.', passcodesHtml) +
+    section('ambpasscodes', 'Ambassador passcodes', 'Each ambassador signs in with their own passcode — set one, change one, or remove one.', ambPasscodesHtml) +
     section('activity', 'Admin activity', 'Who signed in, and when. Refreshes every 30 seconds while you are on this page.', activityHtml) +
     section('delete', 'Delete a league', 'Wipe a league clean: players, game days, matches, and sign-ups go with it. Members stay.', deleteHtml);
 
@@ -1976,6 +2092,34 @@ async function renderAdminBody(leagues, league, me) {
       if (!confirm('Remove this admin’s passcode? They won’t be able to sign in until a new one is set.')) return;
       try {
         await api(`/api/admin/passcodes/${pid}`, { method: 'DELETE' });
+        toast('Passcode removed.');
+        renderAdmin();
+      } catch (e) { msg.textContent = e.message; }
+    };
+  });
+
+  // ---- ambassador passcodes: set/change and remove ----
+  document.querySelectorAll('[data-apc-set]').forEach((b) => {
+    b.onclick = async () => {
+      const pid = +b.dataset.apcSet;
+      const input = document.getElementById(`apc-${pid}`);
+      const msg = document.getElementById('apc-msg');
+      const passcode = input.value;
+      if (passcode.length < 4) { msg.textContent = 'Passcode must be at least 4 characters.'; return; }
+      try {
+        await post('/api/ambassador/passcodes', { personId: pid, passcode });
+        toast('Passcode saved.');
+        renderAdmin();
+      } catch (e) { msg.textContent = e.message; }
+    };
+  });
+  document.querySelectorAll('[data-apc-del]').forEach((b) => {
+    b.onclick = async () => {
+      const pid = +b.dataset.apcDel;
+      const msg = document.getElementById('apc-msg');
+      if (!confirm('Remove this ambassador’s passcode? They won’t be able to sign in until a new one is set.')) return;
+      try {
+        await api(`/api/ambassador/passcodes/${pid}`, { method: 'DELETE' });
         toast('Passcode removed.');
         renderAdmin();
       } catch (e) { msg.textContent = e.message; }
@@ -2341,6 +2485,8 @@ async function renderAdminBody(leagues, league, me) {
         </div>
         <label><input type="checkbox" id="me-admin" ${m.is_admin ? 'checked' : ''}> Make admin</label>
         <p class="fineprint">Admins show their name in red with an ADMIN badge on the Members list.</p>
+        <label><input type="checkbox" id="me-ambassador" ${m.is_ambassador ? 'checked' : ''}> Make ambassador</label>
+        <p class="fineprint">Ambassadors show an AMBASSADOR badge on the Members list, and sign in on the Ambassadors tab with their own passcode, set in Admin → Ambassador passcodes.</p>
         <p class="fineprint" style="margin-top:12px"><strong>Rating history</strong></p>
         <div id="me-history"><p class="fineprint">Loading rating history…</p></div>
         <div class="btnrow"><button class="btn small" id="me-save">Save member</button></div>
@@ -2396,6 +2542,7 @@ async function renderAdminBody(leagues, league, me) {
               singlesRating: document.getElementById('me-singles').value ? +document.getElementById('me-singles').value : null,
               skinnyRating: document.getElementById('me-skinny').value ? +document.getElementById('me-skinny').value : null,
               isAdmin: document.getElementById('me-admin').checked,
+              isAmbassador: document.getElementById('me-ambassador').checked,
             }),
           });
           toast('Member saved.');

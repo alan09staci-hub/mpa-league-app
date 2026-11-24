@@ -253,6 +253,7 @@ table.standings tr.you td { background: #fff8e1; }
 .admin-section.sec-delete > button.head { background: #d92b2b; }
 .admin-section.sec-roundrobin > button.head { background: #22a04a; }
 .admin-section.sec-passcodes > button.head { background: #6c5ce7; }
+.admin-section.sec-ambpasscodes > button.head { background: #8e44ad; }
 .admin-section.sec-activity > button.head { background: #0e7c7b; }
 .admin-section.sec-bracket > button.head { background: #e07b00; }
 /* logo watermark, Admin view only (rendered by renderAdmin) */
@@ -319,6 +320,7 @@ table.standings tr.you td { background: #fff8e1; }
 .fee-waived { color: var(--green); font-weight: 700; }
 .person-row .who .nm.admin-name { color: #d92b2b; }
 .admin-badge { background: var(--black); color: var(--yellow); font-size: 11px; font-weight: 800; letter-spacing: .06em; border-radius: 999px; padding: 2px 8px; margin-left: 6px; vertical-align: middle; white-space: nowrap; }
+.amb-badge { background: var(--green); color: #fff; font-size: 11px; font-weight: 800; letter-spacing: .06em; border-radius: 999px; padding: 2px 8px; margin-left: 6px; vertical-align: middle; white-space: nowrap; }
 .level-pick { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
 .level-pick button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); font-size: 15px; cursor: pointer; }
 .level-pick button.picked { background: var(--black); color: var(--yellow); border-color: var(--black); font-weight: 700; }
