@@ -1,0 +1,850 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="dark" />
+<link rel="icon" href="data:," />
+<title>How Joining MPA Works</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Barlow:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0d0e10;
+    --bg2:#131417;
+    --card:#1a1c20;
+    --card2:#212329;
+    --line:#2c2f36;
+    --ink:#f2f1ec;
+    --muted:#a9abb3;
+    --faint:#7d7f88;
+    --yellow:#ffd21f;
+    --yellow-dim:#3a3312;
+    --green:#3ecf6e;
+    --green-bg:#12301d;
+    --red:#ff6b5e;
+    --red-bg:#3a1a16;
+    --blue:#5ea8ff;
+    --orange:#ff9a3d;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Barlow",system-ui,-apple-system,sans-serif;
+    font-size:17px;line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  button,[role="button"],select,summary,input:not([type="checkbox"],[type="radio"]){min-height:2.25rem}
+  h1,h2,h3,.disp{font-family:"Oswald",sans-serif;text-transform:uppercase;letter-spacing:.02em;line-height:1.12;margin:0}
+  p{margin:0}
+  .wrap{max-width:1060px;margin:0 auto;padding:0 20px 90px}
+
+  /* ---------- HERO ---------- */
+  .hero{padding:44px 0 8px}
+  .hero .kicker{
+    display:inline-flex;align-items:center;gap:8px;
+    font-family:"Oswald",sans-serif;font-size:13px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--yellow);border:1px solid var(--yellow-dim);background:#191708;
+    padding:7px 14px;border-radius:999px;
+  }
+  .hero .kicker .dot{width:8px;height:8px;border-radius:50%;background:var(--yellow)}
+  .hero h1{font-size:clamp(38px,7vw,64px);font-weight:700;margin:20px 0 14px}
+  .hero h1 .y{color:var(--yellow)}
+  .hero .lede{font-size:clamp(17px,2.4vw,20px);color:var(--muted);max-width:720px}
+  .hero .lede strong{color:var(--ink)}
+
+  /* journey strip */
+  .journey{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:34px 0 6px}
+  .jstep{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:16px 16px 14px;text-decoration:none;color:var(--ink);display:block;
+    transition:border-color .15s ease, transform .15s ease;
+  }
+  .jstep:hover{border-color:var(--yellow);transform:translateY(-2px)}
+  .jstep .n{
+    font-family:"Oswald",sans-serif;font-size:12px;letter-spacing:.14em;color:var(--faint);
+    display:flex;justify-content:space-between;align-items:center;
+  }
+  .jstep .n .st{font-size:10.5px;padding:3px 8px;border-radius:999px;letter-spacing:.08em}
+  .st-live{background:var(--green-bg);color:var(--green)}
+  .st-concept{background:#3a2a10;color:var(--orange)}
+  .jstep h3{font-size:19px;margin:8px 0 4px}
+  .jstep p{font-size:14px;color:var(--muted);line-height:1.45}
+
+  /* ---------- SECTIONS ---------- */
+  section.stage{margin-top:64px;scroll-margin-top:20px}
+  .stage-head{display:flex;gap:18px;align-items:flex-start;margin-bottom:8px}
+  .stage-num{
+    flex:0 0 auto;width:56px;height:56px;border-radius:14px;
+    background:var(--yellow);color:#111;
+    font-family:"Oswald",sans-serif;font-size:28px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .stage-num.concept{background:var(--orange)}
+  .stage-head h2{font-size:clamp(27px,4.4vw,38px);font-weight:700}
+  .stage-head .sub{color:var(--muted);font-size:17px;margin-top:5px;max-width:680px}
+  .badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  .badge{
+    font-family:"Oswald",sans-serif;font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+    padding:6px 12px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--bg2);
+  }
+  .badge.free{color:#111;background:var(--yellow);border-color:var(--yellow);font-weight:600}
+  .badge.live{color:var(--green);border-color:#1e4630}
+  .badge.concept{color:#111;background:var(--orange);border-color:var(--orange);font-weight:600}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:22px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:22px}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px;
+  }
+  .card h3{font-size:19px;margin-bottom:8px}
+  .card p{color:var(--muted);font-size:15.5px}
+  .card p + p{margin-top:10px}
+  .card p strong,.card li strong{color:var(--ink)}
+  .card ul{margin:10px 0 0;padding-left:20px;color:var(--muted);font-size:15.5px}
+  .card li{margin:6px 0}
+  .card li::marker{color:var(--yellow)}
+
+  .callout{
+    border-radius:var(--radius);padding:20px 22px;margin-top:16px;font-size:16px;
+    border:1px solid var(--line);background:var(--bg2);
+  }
+  .callout h3{font-size:17px;margin-bottom:6px}
+  .callout p{color:var(--muted)}
+  .callout p strong{color:var(--ink)}
+  .callout.warn{border-color:#5a3a14;background:#221a0d}
+  .callout.warn h3{color:var(--orange)}
+  .callout.good{border-color:#1e4630;background:#0f1f14}
+  .callout.good h3{color:var(--green)}
+
+  /* numbered step rows */
+  .steps{margin-top:22px;display:flex;flex-direction:column;gap:14px}
+  .step{
+    display:grid;grid-template-columns:52px 1fr;gap:16px;
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:20px 22px;
+  }
+  .step .sn{
+    width:44px;height:44px;border-radius:50%;border:2px solid var(--yellow);color:var(--yellow);
+    font-family:"Oswald",sans-serif;font-size:19px;font-weight:600;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .step h3{font-size:20px;margin-bottom:5px}
+  .step p{color:var(--muted);font-size:15.5px;max-width:640px}
+  .step p strong{color:var(--ink)}
+  .step .tag{
+    display:inline-block;margin-top:10px;font-size:13px;font-weight:600;
+    padding:5px 11px;border-radius:999px;background:var(--bg2);border:1px solid var(--line);color:var(--muted);
+  }
+  .step .tag b{color:var(--yellow);font-weight:700}
+
+  /* phone mock */
+  .phone{
+    background:#0a0b0c;border:1px solid var(--line);border-radius:22px;padding:14px;
+    max-width:360px;margin:0 auto;width:100%;
+  }
+  .phone .scr{background:var(--bg2);border-radius:14px;padding:16px;min-height:200px}
+  .phone .bar{
+    display:flex;justify-content:space-between;align-items:center;
+    font-family:"Oswald",sans-serif;font-size:12px;letter-spacing:.12em;color:var(--faint);
+    text-transform:uppercase;margin-bottom:12px;
+  }
+  .phone h4{font-family:"Oswald",sans-serif;text-transform:uppercase;font-size:17px;margin:0 0 6px;letter-spacing:.02em}
+  .phone p{font-size:14px;color:var(--muted)}
+  .field{
+    background:var(--card);border:1px solid var(--line);border-radius:9px;
+    padding:10px 12px;font-size:14.5px;margin-top:9px;color:var(--ink);
+    display:flex;justify-content:space-between;align-items:center;gap:8px;
+  }
+  .field span{color:var(--faint);font-size:12.5px;font-family:"Oswald",sans-serif;letter-spacing:.08em;text-transform:uppercase}
+  .field.locked{color:var(--faint)}
+  .btn{
+    display:block;text-align:center;border-radius:10px;padding:12px 14px;margin-top:12px;
+    font-family:"Oswald",sans-serif;text-transform:uppercase;letter-spacing:.06em;font-size:15px;
+    background:var(--yellow);color:#111;font-weight:600;border:none;width:100%;cursor:pointer;
+  }
+  .btn.ghost{background:transparent;color:var(--yellow);border:1px solid var(--yellow-dim)}
+  .btn:disabled{opacity:.45;cursor:default}
+  .caption{font-size:13.5px;color:var(--faint);text-align:center;margin-top:10px}
+
+  /* rating picker */
+  .picker{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
+  .picker button{
+    flex:1 1 52px;padding:10px 0;border-radius:9px;border:1px solid var(--line);
+    background:var(--card);color:var(--ink);font-family:"Oswald",sans-serif;font-size:16px;cursor:pointer;
+  }
+  .picker button[aria-pressed="true"]{background:var(--yellow);color:#111;border-color:var(--yellow);font-weight:700}
+  .picker-note{font-size:14px;color:var(--muted);margin-top:10px;min-height:22px}
+  .picker-note strong{color:var(--yellow)}
+
+  /* gate checker */
+  .gate-row{
+    display:flex;justify-content:space-between;align-items:center;gap:12px;
+    padding:13px 4px;border-bottom:1px solid var(--line);font-size:15.5px;
+  }
+  .gate-row:last-child{border-bottom:none}
+  .gate-row .lg b{display:block;font-size:16px}
+  .gate-row .lg span{color:var(--faint);font-size:13.5px}
+  .pill{
+    flex:0 0 auto;font-family:"Oswald",sans-serif;font-size:12px;letter-spacing:.08em;text-transform:uppercase;
+    padding:6px 12px;border-radius:999px;
+  }
+  .pill.open{background:var(--green-bg);color:var(--green)}
+  .pill.shut{background:var(--red-bg);color:var(--red)}
+  .pill.paid{background:var(--green-bg);color:var(--green)}
+
+  /* registration / roster row mock */
+  .regrow{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:13px 4px;border-bottom:1px solid var(--line);font-size:15.5px}
+  .regrow:last-child{border-bottom:none}
+  .regrow .who b{display:block;font-size:16px}
+  .regrow .who span{color:var(--faint);font-size:13.5px}
+  .regrow .amt{font-family:"Oswald",sans-serif;font-size:15px;white-space:nowrap;color:var(--muted)}
+
+  /* fee toggle */
+  .fee-toggle{display:flex;gap:8px;margin:14px 0 4px}
+  .fee-toggle button{
+    flex:1;padding:12px;border-radius:10px;border:1px solid var(--line);cursor:pointer;
+    background:var(--card);color:var(--muted);font-family:"Oswald",sans-serif;font-size:15px;
+    text-transform:uppercase;letter-spacing:.04em;
+  }
+  .fee-toggle button[aria-pressed="true"]{background:var(--yellow);color:#111;border-color:var(--yellow);font-weight:700}
+  .fee-big{font-family:"Oswald",sans-serif;font-size:64px;font-weight:700;line-height:1;margin:10px 0 2px}
+  .fee-big small{font-size:20px;color:var(--muted);font-weight:500}
+
+  /* flow diagram */
+  .flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:10px;align-items:stretch;margin-top:20px}
+  .flow .fbox{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
+  .flow .fbox h3{font-size:16px;margin-bottom:5px}
+  .flow .fbox p{font-size:14px;color:var(--muted)}
+  .flow .arrow{display:flex;align-items:center;justify-content:center;color:var(--yellow);font-size:22px;font-weight:700}
+
+  /* dashboard mock */
+  .dash-stat{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}
+  .dash-stat .ds{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 10px;text-align:center}
+  .dash-stat .ds b{font-family:"Oswald",sans-serif;font-size:23px;display:block}
+  .dash-stat .ds span{font-size:11.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em;font-family:"Oswald",sans-serif}
+  .game{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
+    padding:11px 2px;border-bottom:1px solid var(--line);font-size:14.5px;
+  }
+  .game:last-child{border-bottom:none}
+  .game .who b{display:block;font-size:15px}
+  .game .who span{color:var(--faint);font-size:13px}
+  .game .sc{font-family:"Oswald",sans-serif;font-size:17px;white-space:nowrap}
+  .res{font-family:"Oswald",sans-serif;font-size:11px;padding:3px 8px;border-radius:5px;letter-spacing:.06em}
+  .res.w{background:var(--green-bg);color:var(--green)}
+  .res.l{background:var(--red-bg);color:var(--red)}
+
+  /* game night timeline */
+  .timeline{margin-top:22px;border-left:2px solid var(--line);padding-left:26px;display:flex;flex-direction:column;gap:22px}
+  .tl{position:relative}
+  .tl::before{
+    content:"";position:absolute;left:-33px;top:4px;width:12px;height:12px;border-radius:50%;
+    background:var(--bg);border:3px solid var(--yellow);
+  }
+  .tl .t{font-family:"Oswald",sans-serif;color:var(--yellow);font-size:14px;letter-spacing:.1em;text-transform:uppercase}
+  .tl h3{font-size:19px;margin:3px 0 4px}
+  .tl p{color:var(--muted);font-size:15.5px;max-width:640px}
+  .tl p strong{color:var(--ink)}
+
+  .match{
+    background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:12px;max-width:520px;
+  }
+  .match .mh{display:flex;justify-content:space-between;font-size:12.5px;color:var(--faint);font-family:"Oswald",sans-serif;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px}
+  .match .tm{display:flex;justify-content:space-between;padding:5px 0;font-size:15.5px}
+  .match .tm.win{color:var(--green);font-weight:600}
+  .match .scorebtn{
+    margin-top:10px;background:var(--yellow);color:#111;border:none;width:100%;padding:11px;border-radius:9px;
+    font-family:"Oswald",sans-serif;font-size:15px;letter-spacing:.06em;font-weight:600;cursor:pointer;text-transform:uppercase;
+  }
+
+  /* ReClique / YMCA of the Georgia Sunbelt mock — light, as the real site looks */
+  .browser{background:#0a0b0c;border:1px solid var(--line);border-radius:16px;overflow:hidden;margin-top:22px}
+  .b-bar{display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--card2);border-bottom:1px solid var(--line)}
+  .b-dots{display:flex;gap:6px;flex:0 0 auto}
+  .b-dots i{display:block;width:11px;height:11px;border-radius:50%;background:#3a3d44}
+  .b-url{flex:1;text-align:center;background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:13.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .b-tab{flex:0 0 auto;font-family:"Oswald",sans-serif;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+  .ym{background:#f2f2f0;color:#222;font-family:"Barlow",system-ui,sans-serif}
+  .ym-top{background:#0b7a6b;color:#fff;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 18px;flex-wrap:wrap}
+  .ym-top .l{font-family:"Oswald",sans-serif;font-size:13px;letter-spacing:.14em;font-weight:600}
+  .ym-top .r{font-size:13.5px;font-weight:600;display:flex;gap:18px}
+  .ym-head{background:#fff;padding:16px 18px 10px;text-align:center;border-bottom:1px solid #e3e3e0}
+  .ym-logo{display:inline-block;line-height:1;color:#111}
+  .ym-logo .the{font-family:Georgia,serif;font-style:italic;font-weight:700;font-size:21px;vertical-align:top}
+  .ym-logo .y{font-family:"Oswald",sans-serif;font-weight:700;font-size:44px;letter-spacing:-.02em}
+  .ym-logo small{display:block;font-family:"Oswald",sans-serif;font-size:10px;letter-spacing:.34em;color:#555;margin-top:2px;text-transform:uppercase}
+  .ym-nav{background:#fff;padding:8px 14px 14px;border-bottom:3px solid #0b7a6b}
+  .ym-nav .row{display:flex;flex-wrap:wrap;justify-content:center;gap:4px 2px}
+  .ym-nav .row + .row{margin-top:2px}
+  .ym-nav a,.ym-nav span{font-size:12.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#6b6f72;text-decoration:none;padding:7px 10px;border-radius:4px;white-space:nowrap}
+  .ym-nav .proposed{background:#0b7a6b;color:#fff;display:inline-flex;align-items:center;gap:7px;box-shadow:0 0 0 2px #ffd21f inset}
+  .ym-nav .proposed em{font-style:normal;background:#ff9a3d;color:#111;font-family:"Oswald",sans-serif;font-size:9.5px;letter-spacing:.07em;padding:3px 6px;border-radius:999px;font-weight:700}
+  .ym-concept{display:flex;justify-content:center;padding:10px 14px 0;background:#f2f2f0}
+  .ym-concept span{background:#111;color:#ffd21f;font-family:"Oswald",sans-serif;font-size:11px;letter-spacing:.12em;text-transform:uppercase;padding:5px 11px;border-radius:999px}
+  .ym-body{display:grid;grid-template-columns:218px 1fr;gap:18px;padding:18px;background:#f2f2f0}
+  .ym-side{background:#fff;border:1px solid #ddd;border-radius:6px;padding:14px;height:fit-content}
+  .ym-search{border:1px solid #bbb;border-radius:4px;padding:9px 10px;font-size:13.5px;color:#888;background:#fff}
+  .ym-side h5{font-family:"Oswald",sans-serif;font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin:16px 0 8px;color:#333}
+  .ym-cat{list-style:none;margin:0;padding:0;font-size:14px;color:#444}
+  .ym-cat li{padding:7px 0;border-bottom:1px solid #eee;display:flex;gap:8px;align-items:center}
+  .ym-cat li::before{content:"";width:11px;height:11px;border:1.5px solid #aaa;border-radius:2px;flex:0 0 auto}
+  .ym-cat li.on{font-weight:700;color:#0b7a6b}
+  .ym-cat li.on::before{background:#0b7a6b;border-color:#0b7a6b}
+  .ym-cat li small{margin-left:auto;font-size:10px;background:#ff9a3d;color:#111;font-weight:700;padding:2px 5px;border-radius:999px;letter-spacing:.05em}
+  .ym-card{background:#fff;border:1px solid #ddd;border-radius:6px;padding:18px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+  .ym-card.proposed-card{border:2px solid #0b7a6b}
+  .ym-card h4{font-family:"Oswald",sans-serif;font-size:19px;text-transform:uppercase;margin:0 0 4px;color:#111;line-height:1.2}
+  .ym-card p{font-size:14.5px;color:#555}
+  .ym-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .ym-meta span{font-size:12.5px;font-weight:600;background:#eef6f4;color:#0b5f54;border:1px solid #cfe6e1;padding:4px 9px;border-radius:999px}
+  .ym-prices{width:100%;border-collapse:collapse;margin-top:14px;font-size:14.5px}
+  .ym-prices caption{text-align:left;font-family:"Oswald",sans-serif;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#777;padding-bottom:6px}
+  .ym-prices th,.ym-prices td{border:1px solid #ddd;padding:8px 10px;text-align:left}
+  .ym-prices th{background:#f7f7f5;color:#333}
+  .ym-prices td:last-child,.ym-prices th:last-child{text-align:right;font-weight:700}
+  .ym-reg{margin-top:14px;background:#0b9a89;color:#fff;border:none;border-radius:4px;padding:11px 26px;font-family:"Oswald",sans-serif;font-size:15px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;cursor:pointer}
+  .ym-reg:hover{background:#078574}
+  .ym-reg-note{font-size:13px;color:#0b5f54;font-weight:600;margin-top:8px}
+  .ym-diff{background:#fff8e6;border:1px solid #e8d48a;border-radius:6px;padding:12px 14px;font-size:14px;color:#5c4b00;margin-bottom:14px}
+  .ym-login{display:none;background:#fff;border-top:3px solid #0b7a6b;padding:20px 18px 22px}
+  .ym-login.show{display:block}
+  .ym-login h4{font-family:"Oswald",sans-serif;font-size:20px;text-transform:uppercase;margin:0;color:#111}
+  .ym-login .q{font-size:17px;font-weight:700;color:#0b5f54;margin:4px 0 14px}
+  .ym-login-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .ym-login-col{border:1px solid #ddd;border-radius:6px;padding:14px;background:#fcfcfb}
+  .ym-login-col h5{font-size:14.5px;margin:0 0 6px;color:#111;line-height:1.3}
+  .ym-login-col p{font-size:13.5px;color:#666;margin:0 0 10px}
+  .ym-field{border:1px solid #bbb;border-radius:4px;background:#fff;padding:8px 10px;font-size:13.5px;color:#999;margin-top:7px}
+  .ym-field b{display:block;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:#777;font-weight:700}
+  .ym-login-btn{margin-top:11px;width:100%;background:#0b9a89;color:#fff;border:none;border-radius:4px;padding:10px;font-family:"Oswald",sans-serif;font-size:13.5px;letter-spacing:.05em;text-transform:uppercase;font-weight:600}
+  .ym-login-btn.alt{background:#fff;color:#0b7a6b;border:1.5px solid #0b7a6b}
+  .ym-nocart{margin-top:14px;background:#3a1a16;color:#ffb3ab;border-radius:6px;padding:12px 14px;font-size:14px}
+  .ym-nocart strong{color:#fff}
+  @media (max-width:820px){
+    .b-tab{display:none}
+    .ym-body{grid-template-columns:1fr}
+    .ym-login-grid{grid-template-columns:1fr}
+    .ym-top{justify-content:center;text-align:center}
+  }
+
+  .divider{height:1px;background:var(--line);margin:70px 0 0}
+  footer{margin-top:34px;color:var(--faint);font-size:14px;text-align:center}
+  footer b{color:var(--muted)}
+
+  @media (max-width:820px){
+    .journey{grid-template-columns:1fr 1fr}
+    .grid2,.grid3{grid-template-columns:1fr}
+    .flow{grid-template-columns:1fr}
+    .flow .arrow{transform:rotate(90deg);padding:2px 0}
+    .dash-stat{grid-template-columns:1fr 1fr}
+    .step{grid-template-columns:40px 1fr;padding:18px}
+    .step .sn{width:36px;height:36px;font-size:16px}
+    .stage-num{width:46px;height:46px;font-size:23px}
+  }
+  @media (prefers-reduced-motion: reduce){
+    html{scroll-behavior:auto}
+    .jstep{transition:none}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ================= HERO ================= -->
+  <header class="hero">
+    <span class="kicker"><span class="dot"></span> Moultrie Pickleball Association · Preview</span>
+    <h1>How joining MPA works,<br><span class="y">start to game night</span></h1>
+    <p class="lede">The whole journey in one place: becoming a member (free), joining a league for your skill level, and what the league fee is and how paying is meant to work. <strong>Two of the three stages are live today.</strong> The payment stage is marked <strong>CONCEPT</strong> — it's designed, but the YMCA payment option doesn't exist yet.</p>
+
+    <nav class="journey" aria-label="The three stages">
+      <a class="jstep" href="#join-mpa">
+        <span class="n">Stage 1 <span class="st st-live">Live</span></span>
+        <h3>Join MPA</h3>
+        <p>Free membership. Three steps, automatic — nobody approves you.</p>
+      </a>
+      <a class="jstep" href="#join-league">
+        <span class="n">Stage 2 <span class="st st-live">Live</span></span>
+        <h3>Join a league</h3>
+        <p>Pick the league for your skill. The organizer adds you to the roster.</p>
+      </a>
+      <a class="jstep" href="#paying">
+        <span class="n">Stage 3 <span class="st st-concept">Concept</span></span>
+        <h3>Pay the fee</h3>
+        <p>$20 / $40 — paid to the YMCA, not MPA. Payment path still being set up.</p>
+      </a>
+    </nav>
+  </header>
+
+  <!-- ================= STAGE 1 ================= -->
+  <section class="stage" id="join-mpa">
+    <div class="stage-head">
+      <div class="stage-num">1</div>
+      <div>
+        <h2>Join MPA — free, and automatic</h2>
+        <p class="sub">Everything starts on the app's front page. Home of the Moultrie Pickleball League at the YMCA in Moultrie, GA — three steps, in order, and the league opens right there.</p>
+        <div class="badges">
+          <span class="badge free">Cost: $0</span>
+          <span class="badge live">● Live now</span>
+          <span class="badge">No approval step</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="sn">1</div>
+        <div>
+          <h3>DUPR — get your rating account</h3>
+          <p>You need a <strong>DUPR account</strong> — it's free to sign up, and your DUPR rating is what places you in the right league and seeds you fairly. DUPR is the standard for every MPA league.</p>
+          <p style="margin-top:8px">If the DUPR signup email won't come through — it happens — you don't get stuck. <strong>Rate yourself instead</strong> on the 2.5–5.0 picker, right there in Step 1. A self-rating shows everywhere as <strong>"Self-rated"</strong>, never as a DUPR rating, and you can add a real DUPR ID later from My Profile — the flag clears the moment you do.</p>
+          <span class="tag">Try the picker → <b>Self-rated 3.5</b> is how it displays</span>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="sn">2</div>
+        <div>
+          <h3>Become a Member — the free-member form</h3>
+          <p>Name, DUPR ID and rating (or your self-rating), email and phone. That's the form. <strong>Membership is automatic — nobody approves you.</strong> The moment you submit, you're a member.</p>
+          <p style="margin-top:8px">Already joined before? <strong>"I'm already a member" / Find my name</strong> lives inside this step — tap it, find your name, and skip the form. Your <strong>email and phone are Admin-only</strong> — the organizer can see them, they never appear on any public page.</p>
+          <span class="tag">Cost to become a member: <b>$0 — always</b></span>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="sn">3</div>
+        <div>
+          <h3>Join the league</h3>
+          <p>Step 3 takes you straight into picking your league — that's Stage 2 below. Membership comes first because the league join checks the rating from your member record.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>The self-rating picker</h3>
+        <p>The fallback when a DUPR signup email won't arrive. Tap a level to see exactly how it would show on your record:</p>
+        <div class="picker" id="selfPicker" role="group" aria-label="Self-rating picker">
+          <button type="button" data-r="2.5">2.5</button>
+          <button type="button" data-r="3.0">3.0</button>
+          <button type="button" data-r="3.5" aria-pressed="true">3.5</button>
+          <button type="button" data-r="4.0">4.0</button>
+          <button type="button" data-r="4.5">4.5</button>
+          <button type="button" data-r="5.0">5.0</button>
+        </div>
+        <p class="picker-note" id="pickerNote">Your record shows: <strong>Self-rated 3.5</strong> — the league's skill band still gates it, same as a DUPR rating.</p>
+        <p style="margin-top:8px">Seeding uses the rating either way. DUPR stays the standard — the picker is a way in, not a replacement.</p>
+      </div>
+
+      <div>
+        <div class="phone" aria-label="Mockup of the You're a member card">
+          <div class="scr">
+            <div class="bar"><span>MPA · Front page</span><span>✓</span></div>
+            <h4>You're a member!</h4>
+            <p>Welcome to the Moultrie Pickleball Association. Your membership is active — pick your league to get on a roster.</p>
+            <div class="field"><span>Member</span> You</div>
+            <div class="field"><span>Rating</span> Self-rated 3.5</div>
+            <div class="field"><span>Membership</span> Free · Active</div>
+            <button class="btn" type="button">Join a league</button>
+            <button class="btn ghost" type="button">Browse members</button>
+          </div>
+        </div>
+        <p class="caption">What you get right away: the <b>"You're a member!"</b> card, the Members directory, and the leagues list.</p>
+      </div>
+    </div>
+
+    <div class="callout">
+      <h3>The slower path — the standalone signup page</h3>
+      <p>There's also a separate signup page that <strong>emails the organizer directly</strong>. He adds you in Admin by hand. Same membership, same result — it just takes longer than the automatic front-page flow. If you signed up that way and don't see yourself yet, that's why: it waits on a person, not a system.</p>
+    </div>
+  </section>
+
+  <!-- ================= STAGE 2 ================= -->
+  <section class="stage" id="join-league">
+    <div class="stage-head">
+      <div class="stage-num">2</div>
+      <div>
+        <h2>Join a league — pick your skill level</h2>
+        <p class="sub">Every league has a skill band, and the band gates the join. It keeps games competitive — nobody spends a season overmatched or undermatched.</p>
+        <div class="badges">
+          <span class="badge live">● Live now</span>
+          <span class="badge">Skill band enforced</span>
+          <span class="badge">50+ &amp; Women's: any rating</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>Try the skill gate</h3>
+        <p>Set a rating and watch which doors open. This is the exact rule Join Step 1 applies:</p>
+        <div class="picker" id="gatePicker" role="group" aria-label="Rating for skill gate demo">
+          <button type="button" data-r="2.5">2.5</button>
+          <button type="button" data-r="3.0" aria-pressed="true">3.0</button>
+          <button type="button" data-r="3.5">3.5</button>
+          <button type="button" data-r="4.0">4.0</button>
+          <button type="button" data-r="4.5">4.5</button>
+          <button type="button" data-r="5.0">5.0</button>
+        </div>
+        <div style="margin-top:14px">
+          <div class="gate-row"><div class="lg"><b>Advanced</b><span>Band 3.5 – 4.49</span></div><span class="pill" data-gate="adv">—</span></div>
+          <div class="gate-row"><div class="lg"><b>Intermediate / Advanced</b><span>Band 3.0 – 4.5</span></div><span class="pill" data-gate="ia">—</span></div>
+          <div class="gate-row"><div class="lg"><b>Intermediate</b><span>Band 2.5 – 3.49</span></div><span class="pill" data-gate="int">—</span></div>
+          <div class="gate-row"><div class="lg"><b>50+</b><span>Any rating — never gates</span></div><span class="pill" data-gate="fifty">—</span></div>
+          <div class="gate-row"><div class="lg"><b>Women's</b><span>Any rating — open</span></div><span class="pill" data-gate="wom">—</span></div>
+        </div>
+        <p id="gateNote" style="margin-top:12px"></p>
+      </div>
+
+      <div class="card">
+        <h3>How the join itself runs</h3>
+        <ul>
+          <li><strong>Join Step 1 checks your skill</strong> against the band first — before anything else happens.</li>
+          <li>Then it <strong>looks up your public DUPR</strong>. A match <strong>welcomes you back by name</strong> — the app already knows you.</li>
+          <li>No match? No problem — you continue as a new free member on the sign-up.</li>
+          <li>Bands are <strong>inclusive</strong>: a 5.0-and-above band takes 5.0 and up; a 3.5 fits a 3.5–4.49 band, a 4.5 does not.</li>
+        </ul>
+        <div class="callout warn" style="margin-top:16px">
+          <h3>The one thing that trips people up</h3>
+          <p>Joining creates a <strong>pending registration — not a roster spot</strong>. You're in line, not in the league, until the organizer adds you. That's deliberate: it's the one human check in the whole journey.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div>
+        <div class="phone" aria-label="Mockup of the pending registration notice">
+          <div class="scr">
+            <div class="bar"><span>MPA · Front page</span><span>⏳</span></div>
+            <h4>You're signed up</h4>
+            <p>You're signed up for <b style="color:var(--ink)">MPA Winter — Advanced</b> — the organizer will add you to the roster.</p>
+            <div class="field"><span>Status</span> Pending registration</div>
+            <div class="field"><span>Roster spot</span> Not yet</div>
+            <p style="margin-top:12px">No need to join again — this notice stays on your front page while you wait, and the league opens up the moment you're added.</p>
+          </div>
+        </div>
+        <p class="caption">What you see while you wait — on your front page.</p>
+      </div>
+      <div class="card">
+        <h3>The organizer's side</h3>
+        <p>Your registration lands in <strong>Admin → Registrations</strong>. The organizer reviews it and adds you to the roster — that's the step that turns a pending registration into a league player.</p>
+        <ul>
+          <li>Adding you is what unlocks the league: game days, standings, your dashboard.</li>
+          <li>One person, one record — if you're already a member, there's no duplicate; your DUPR carries over to every league you join.</li>
+          <li>Playing in two leagues? Each league keeps its <strong>own standings, misses and penalty</strong> — nothing bleeds across.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= STAGE 3 ================= -->
+  <section class="stage" id="paying">
+    <div class="stage-head">
+      <div class="stage-num concept">3</div>
+      <div>
+        <h2>Paying — the league fee</h2>
+        <p class="sub">Membership is free forever. A league season has a fee — and the fee is the YMCA's, not MPA's. Here's where the money goes, the round trip paying is designed to take, and the honest status of that design today.</p>
+        <div class="badges">
+          <span class="badge concept">Concept — not live yet</span>
+          <span class="badge">Fee set Nov 24, 2026</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>What the fee is</h3>
+        <div class="fee-toggle" role="group" aria-label="YMCA membership toggle">
+          <button type="button" id="feeMember" aria-pressed="true">YMCA member</button>
+          <button type="button" id="feeNon" aria-pressed="false">Not a member</button>
+        </div>
+        <div class="fee-big"><span id="feeAmount">$20</span> <small>per league season</small></div>
+        <p id="feeNote">The member rate. You pay the YMCA's rate because you're already a YMCA member.</p>
+        <ul>
+          <li>Per person, <strong>per league</strong> — two leagues, two fees.</li>
+          <li><strong>The money goes to the YMCA</strong> — MPA doesn't take it. The app only records that it's paid.</li>
+          <li>The organizer can <strong>waive a fee</strong> per person, per league — and undo it. It's record-keeping in Admin.</li>
+          <li>Membership itself stays <strong>$0</strong> either way.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>The money goes to the YMCA</h3>
+        <p>When you pay for a league, <strong>you pay the YMCA</strong> — on the YMCA's own system, ReClique Core (moultrie.recliquecore.com). MPA is never the seller and never holds the money.</p>
+        <ul>
+          <li><strong>Where the paying happens on their side is the YMCA's decision.</strong> The Pickleball tab in the mockup below is a suggestion — one easy spot for it. The placement is their call.</li>
+          <li>The round trip: <strong>tap pay in the app → you leave the app → you pay the YMCA on Core → you come back to the app</strong>, where your league registration shows <strong>Paid</strong>.</li>
+          <li>The app's whole job in this is the last step: <strong>recording that it's paid</strong>, so the player and the organizer can both see it.</li>
+        </ul>
+        <p style="margin-top:10px">That walk, in detail, is next — including what "Paid" looks like back in the app — then the honest status of it today.</p>
+      </div>
+    </div>
+
+    <div class="flow" aria-label="Designed payment flow">
+      <div class="fbox"><h3>1 · Tap pay in the app</h3><p>From your league in the app, one tap starts it — and takes you out of the app, to the YMCA's side.</p></div>
+      <div class="arrow">→</div>
+      <div class="fbox"><h3>2 · Pay the YMCA on Core</h3><p>The $20 / $40 goes to the YMCA, wherever they place the paying — the proposed Pickleball tab is the suggestion. <b style="color:var(--orange)">This step is CONCEPT</b> — there is no pickleball payment option on Core today.</p></div>
+      <div class="arrow">→</div>
+      <div class="fbox"><h3>3 · Back in the app: Paid</h3><p>You return to the app and your league registration now shows <b style="color:var(--green)">Paid</b>. The YMCA holds the money; the app simply records that it's paid.</p></div>
+    </div>
+
+    <h3 class="disp" style="font-size:24px;margin-top:44px">Where it takes you — the real Core page, with a suggested tab</h3>
+    <p style="color:var(--muted);margin-top:8px;max-width:760px">This is rebuilt from the real page as visited <strong style="color:var(--ink)">Nov 24, 2026</strong> — not an invented version. <strong style="color:var(--ink)">moultrie.recliquecore.com</strong> loads as the <strong style="color:var(--ink)">YMCA of the Georgia Sunbelt</strong> site (sunbeltymca.org): teal-green top bar, white header with the centred “the Y” logo, and two rows of grey uppercase nav links. The one piece that does <em>not</em> exist there is flagged everywhere it appears — a suggested <strong style="color:var(--ink)">PICKLEBALL</strong> tab in that main nav. It is a suggestion only: <strong style="color:var(--ink)">where the paying lives on their site is the YMCA's decision</strong> — the tab is simply the easiest spot this design can point to.</p>
+
+    <div class="browser" aria-label="Concept mockup of the real YMCA of the Georgia Sunbelt Core page with a proposed Pickleball tab">
+      <div class="b-bar">
+        <span class="b-dots"><i></i><i></i><i></i></span>
+        <span class="b-url">moultrie.recliquecore.com — YMCA of the Georgia Sunbelt</span>
+        <span class="b-tab">Concept</span>
+      </div>
+      <div class="ym">
+        <div class="ym-top">
+          <span class="l">YMCA OF THE GEORGIA SUNBELT</span>
+          <span class="r"><span>Locations</span><span>Log In</span></span>
+        </div>
+        <div class="ym-head">
+          <span class="ym-logo"><span class="the">the</span> <span class="y">Y</span><small>YMCA</small></span>
+        </div>
+        <nav class="ym-nav" aria-label="YMCA main navigation with proposed Pickleball tab">
+          <div class="row">
+            <span>About</span><span>Membership</span><span>Events</span><span>Classes</span><span>Programs</span><span>YMCA Sports Portal</span><span>Childcare</span>
+            <span class="proposed">Pickleball <em>Proposed tab</em></span>
+          </div>
+          <div class="row">
+            <span>Sponsorship Opportunities</span><span>Donate</span>
+          </div>
+        </nav>
+        <div class="ym-concept"><span>Concept — Pickleball tab &amp; league listing are proposed, not live</span></div>
+
+        <div class="ym-body">
+          <aside class="ym-side" aria-label="Programs search and filters">
+            <div class="ym-search">Search programs…</div>
+            <h5>Filter By Category</h5>
+            <ul class="ym-cat">
+              <li>Aquatics</li>
+              <li>Childcare</li>
+              <li>Classes &amp; Events</li>
+              <li>Fitness</li>
+              <li class="on">Pickleball <small>Proposed</small></li>
+              <li>Sports</li>
+              <li>Youth Programs</li>
+            </ul>
+          </aside>
+
+          <div>
+            <div class="ym-diff"><strong>Not the same as “Pickleball Club”:</strong> the Core site already lists a Pickleball Club — that is a different, existing program. The card below is the proposed <strong>MPA ladder league</strong> listing, under its own suggested tab.</div>
+
+            <article class="ym-card proposed-card">
+              <h4>MPA Pickleball League — Winter Season</h4>
+              <p>Moultrie Pickleball Association ladder league · YMCA, 601 26th Ave SE, Moultrie, GA 31768 · 8-week season</p>
+              <div class="ym-meta"><span>Advanced</span><span>Coed Doubles</span><span>Saturdays · 6:30 PM</span></div>
+              <table class="ym-prices">
+                <caption>Prices</caption>
+                <tr><th>Member</th><td>$20.00</td></tr>
+                <tr><th>Non-Member</th><td>$40.00</td></tr>
+              </table>
+              <button type="button" class="ym-reg" id="rcRegister" aria-expanded="false" aria-controls="ymLogin">Register</button>
+              <p class="ym-reg-note">Tap Register — see exactly what the real site does next, below ↓</p>
+            </article>
+
+            <article class="ym-card">
+              <h4>Pickleball Club</h4>
+              <p>Existing YMCA listing on the real site. Shown here only to make the distinction clear — this is <strong>not</strong> the MPA league, not the proposed tab, and not where the league fee would be paid.</p>
+            </article>
+
+            <p style="font-size:14px;color:#555">Every MPA league would list under the one proposed tab — <strong style="color:#222">Intermediate, Intermediate/Advanced, Advanced, Women's, 50+, Elite</strong> — each named exactly as it is in the app, so the listing you pay for is the roster you're on.</p>
+          </div>
+        </div>
+
+        <div class="ym-login" id="ymLogin" aria-label="What happens when you click Register — the Log In page">
+          <h4>Log In</h4>
+          <p class="q">Which best describes you?</p>
+          <div class="ym-login-grid">
+            <div class="ym-login-col">
+              <h5>I have an online account already</h5>
+              <p>Existing online user — sign in with the email / username and password you already use.</p>
+              <div class="ym-field"><b>Email / Username</b>you@example.com</div>
+              <div class="ym-field"><b>Password</b>••••••••</div>
+              <button type="button" class="ym-login-btn">Log In</button>
+            </div>
+            <div class="ym-login-col">
+              <h5>I'm a member or participant, but I don't know my credentials</h5>
+              <p>Find your account with your Member ID or barcode — or your last name and date of birth.</p>
+              <div class="ym-field"><b>Member ID / Barcode</b>—</div>
+              <div class="ym-field"><b>Last name</b>—</div>
+              <div class="ym-field"><b>Date of birth</b>MM / DD / YYYY</div>
+              <button type="button" class="ym-login-btn alt">Find my account</button>
+            </div>
+            <div class="ym-login-col">
+              <h5>I've never been a member or participant</h5>
+              <p>Create a new account to register online, starting with your email.</p>
+              <div class="ym-field"><b>Email</b>you@example.com</div>
+              <button type="button" class="ym-login-btn alt">Create a new account</button>
+            </div>
+          </div>
+          <div class="ym-nocart"><strong>That is as far as anyone can see without signing in.</strong> Clicking Register does <strong>not</strong> open a cart — there is no cart, no order summary, and no payment fields visible on this page. The checkout itself sits behind this Log In, so it cannot be shown in this preview.</div>
+        </div>
+      </div>
+    </div>
+    <p class="caption">CONCEPT. The YMCA page, nav, Programs layout and Log In page are the real site as visited Nov 24, 2026. The Pickleball tab and the MPA league listing are the proposal — neither exists on Core today.</p>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>The walk, click by click</h3>
+        <ul>
+          <li><strong>Tap "Pay the league fee" in the app.</strong> It would appear once you're on a roster. Core opens — the YMCA of the Georgia Sunbelt page above.</li>
+          <li><strong>Open the proposed Pickleball tab.</strong> In this design it sits in the real main nav, after Childcare — flagged “Proposed tab” here because Core has no such tab today, and where the YMCA actually places the paying is their decision.</li>
+          <li><strong>Find your league in the Programs-style listing.</strong> Search box and Filter By Category on the left, program cards on the right — the MPA Pickleball League card, with its PRICES table: Member $20 / Non-Member $40.</li>
+          <li><strong>Tap the teal Register button.</strong> This is the honest part: it does <strong>not</strong> open a cart. It takes you straight to the Log In page — “Which best describes you?” — shown in full in the mockup above. Try it: the Register button in the mockup opens that exact view.</li>
+          <li><strong>Sign in, or create an account.</strong> Only after that step would Core show whatever checkout follows — and that part cannot be previewed without an account.</li>
+        </ul>
+      </div>
+      <div>
+        <div class="card">
+          <h3>What Register actually does — plainly</h3>
+          <div class="field"><span>You tap</span> Register (teal button)</div>
+          <div class="field"><span>You land on</span> Log In — “Which best describes you?”</div>
+          <div class="field"><span>Cart?</span> <b>None — no cart opens</b></div>
+          <div class="field"><span>Order summary?</span> <b>Not visible</b></div>
+          <div class="field"><span>Payment fields?</span> <b>Not visible without signing in</b></div>
+          <p style="margin-top:12px">So this preview does <strong>not</strong> show a checkout — because the real site doesn't show one at this point either. Anyone presenting this should say exactly that: <strong>the checkout itself cannot be shown until you're signed in on Core.</strong> Your rate would follow the toggle above — <b id="ckRate">YMCA member</b>, <b id="ckTotal">$20.00</b> — once you're through the Log In.</p>
+        </div>
+        <div class="callout" style="margin-top:16px">
+          <h3>Why suggest a tab of its own?</h3>
+          <p>The real nav already carries Programs, Classes, Sports and more. Without a tab for pickleball, each MPA season would sit buried inside a general category where players have to hunt for it. A Pickleball tab would be one tap from the Core front page to every MPA league, and it keeps the league separate from the existing <strong>Pickleball Club</strong> listing, which is a different program. <strong>But it stays a suggestion</strong> — if the YMCA would rather put the paying somewhere else on their side, that works too. The placement is theirs to decide; what matters is that the fee is paid to them.</p>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="disp" style="font-size:24px;margin-top:44px">Back in the app — your registration shows Paid</h3>
+    <p style="color:var(--muted);margin-top:8px;max-width:760px">The last leg of the round trip happens back on MPA's side. The money stays with the YMCA — the app's job is only to <strong style="color:var(--ink)">record that it's paid</strong>, so both the organizer and the player can see it. The fee toggle at the top of this stage drives both mockups below.</p>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>The organizer's side — Admin → Registrations</h3>
+        <p>The registration row for the league, after the player has paid the YMCA and come back:</p>
+        <div style="margin-top:8px">
+          <div class="regrow">
+            <div class="who"><b>You</b><span>MPA Winter — Advanced · Rostered</span></div>
+            <span style="display:flex;align-items:center;gap:10px"><span class="amt" id="regAmt">$20 · YMCA member</span><span class="pill paid">✓ Paid</span></span>
+          </div>
+          <div class="regrow">
+            <div class="who"><b>Another roster player</b><span>MPA Winter — Advanced · Rostered</span></div>
+            <span style="display:flex;align-items:center;gap:10px"><span class="amt">$40 · Non-member</span><span class="pill paid">✓ Paid</span></span>
+          </div>
+          <div class="regrow">
+            <div class="who"><b>A player who hasn't paid yet</b><span>MPA Winter — Advanced · Rostered</span></div>
+            <span style="display:flex;align-items:center;gap:10px"><span class="amt">—</span><span class="pill shut">Unpaid</span></span>
+          </div>
+        </div>
+        <p style="margin-top:12px">One row per player, per league — the fee, the rate it was paid at, and a plain <strong>Paid</strong> marker. No card numbers, no payment details: those never leave the YMCA's side.</p>
+      </div>
+
+      <div>
+        <div class="phone" aria-label="Mockup of the player view showing the league fee as Paid">
+          <div class="scr">
+            <div class="bar"><span>MPA · Front page</span><span>✓</span></div>
+            <h4>Your league</h4>
+            <p>You're on the roster for <b style="color:var(--ink)">MPA Winter — Advanced</b>. Your league fee is settled with the YMCA.</p>
+            <div class="field"><span>League</span> MPA Winter — Advanced</div>
+            <div class="field"><span>Fee</span> <b id="paidLine" style="color:var(--green)">Paid $20 — YMCA member</b></div>
+            <div class="field"><span>Paid to</span> YMCA (via ReClique Core)</div>
+            <div class="field"><span>Status</span> On the roster</div>
+            <button class="btn" type="button">Open game day</button>
+          </div>
+        </div>
+        <p class="caption">What the player sees when they're back — the fee reads <b>Paid</b>, with the amount and the rate it was paid at.</p>
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <h3>⚠ The honest version, today</h3>
+      <p>There is <strong>no MPA league program on Core yet</strong> — the only pickleball listing there today is the separate Pickleball Club — so there is <strong>no live payment button anywhere a player can see</strong>: the fee is hidden from player views on purpose, so nobody is asked to pay into a system that can't take it. And even on the real programs that do exist, <strong>Register leads to a Log In page, not a cart</strong> — no checkout can be seen, let alone completed, without signing in first. Nothing in the app stops you playing unpaid: <strong>the pay-before-you-play gate still has to be built before go-live</strong>. So right now the journey is simply: <strong>join → get added to the roster → play</strong>. Payment is arranged outside the app until the YMCA option exists. And the <strong>Paid</strong> markers in the return mockups above are part of that same design: the app showing Paid is what the flow is built to do <strong>once the YMCA payment option exists — it is not live today</strong>. Where on their side the paying happens is likewise still the YMCA's to decide; the Pickleball tab is this design's suggestion, not a settled placement.</p>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+  <footer>
+    <p><b>Moultrie Pickleball Association</b> · YMCA, 601 26th Ave SE, Moultrie, GA 31768 · moultriepickleball@gmail.com</p>
+    <p style="margin-top:6px">Preview of the joining journey as it stands Nov 24, 2026. Stage 3 (payment) is concept until the YMCA's ReClique option exists.</p>
+  </footer>
+</div>
+
+<script>
+(function(){
+  // Self-rating picker
+  var sp = document.getElementById('selfPicker');
+  var note = document.getElementById('pickerNote');
+  sp.addEventListener('click', function(e){
+    var b = e.target.closest('button'); if(!b) return;
+    sp.querySelectorAll('button').forEach(function(x){ x.removeAttribute('aria-pressed'); });
+    b.setAttribute('aria-pressed','true');
+    note.innerHTML = 'Your record shows: <strong>Self-rated ' + b.dataset.r + '</strong> — the league\u2019s skill band still gates it, same as a DUPR rating.';
+  });
+
+  // Skill gate
+  var gp = document.getElementById('gatePicker');
+  var gnote = document.getElementById('gateNote');
+  function setPill(key, open){
+    var el = document.querySelector('[data-gate="'+key+'"]');
+    el.textContent = open ? 'Open to you' : 'Band blocks you';
+    el.className = 'pill ' + (open ? 'open' : 'shut');
+  }
+  function runGate(r){
+    r = parseFloat(r);
+    setPill('adv', r >= 3.5 && r <= 4.49);
+    setPill('ia',  r >= 3.0 && r <= 4.5);
+    setPill('int', r >= 2.5 && r <= 3.49);
+    setPill('fifty', true);
+    setPill('wom', true);
+    if (r === 3.0) gnote.innerHTML = 'At <strong style="color:var(--ink)">3.0</strong> the Advanced door (3.5–4.49) is shut — that\u2019s the gate working. Intermediate and the open leagues take you today.';
+    else if (r === 4.5) gnote.innerHTML = 'At <strong style="color:var(--ink)">4.5</strong> you\u2019re above the Advanced cap of 4.49 — a 4.5 counts as a 4.5, and 5.0-and-above bands are where you\u2019d land.';
+    else if (r >= 3.5 && r <= 4.0) gnote.innerHTML = 'At <strong style="color:var(--ink)">' + r.toFixed(1) + '</strong> you\u2019re inside the Advanced band — the full set of skill leagues is open to you.';
+    else if (r === 2.5) gnote.innerHTML = 'At <strong style="color:var(--ink)">2.5</strong> Intermediate is your skill league — plus 50+ and Women\u2019s, which never gate on rating.';
+    else gnote.innerHTML = 'At <strong style="color:var(--ink)">5.0</strong> the capped bands are below you — open leagues and any 5.0-and-above band are your fit.';
+  }
+  gp.addEventListener('click', function(e){
+    var b = e.target.closest('button'); if(!b) return;
+    gp.querySelectorAll('button').forEach(function(x){ x.removeAttribute('aria-pressed'); });
+    b.setAttribute('aria-pressed','true');
+    runGate(b.dataset.r);
+  });
+  runGate('3.0');
+
+  // Fee toggle
+  var fm = document.getElementById('feeMember'), fn = document.getElementById('feeNon');
+  var amt = document.getElementById('feeAmount'), fnote = document.getElementById('feeNote');
+  function setFee(member){
+    fm.setAttribute('aria-pressed', member ? 'true' : 'false');
+    fn.setAttribute('aria-pressed', member ? 'false' : 'true');
+    amt.textContent = member ? '$20' : '$40';
+    var ckR = document.getElementById('ckRate'), ckT = document.getElementById('ckTotal');
+    if (ckR) ckR.textContent = member ? 'YMCA member' : 'Non-member';
+    if (ckT) ckT.textContent = member ? '$20.00' : '$40.00';
+    var pl = document.getElementById('paidLine'), ra = document.getElementById('regAmt');
+    if (pl) pl.textContent = member ? 'Paid $20 — YMCA member' : 'Paid $40 — Non-member';
+    if (ra) ra.textContent = member ? '$20 · YMCA member' : '$40 · Non-member';
+    fnote.textContent = member
+      ? 'The member rate. You pay the YMCA\u2019s rate because you\u2019re already a YMCA member.'
+      : 'The non-member rate — set Nov 24, 2026 (it was $50 before the YMCA meeting). Still arranged outside the app for now.';
+  }
+  fm.addEventListener('click', function(){ setFee(true); });
+  fn.addEventListener('click', function(){ setFee(false); });
+
+  // Core mock: Register does NOT open a cart — it reveals the Log In page, as on the real site
+  var rcReg = document.getElementById('rcRegister');
+  var ymLogin = document.getElementById('ymLogin');
+  if (rcReg && ymLogin) rcReg.addEventListener('click', function(){
+    var open = ymLogin.classList.toggle('show');
+    rcReg.setAttribute('aria-expanded', open ? 'true' : 'false');
+    rcReg.textContent = open ? 'Register — you are now at Log In ↓' : 'Register';
+    if (open) ymLogin.scrollIntoView({behavior:'smooth', block:'nearest'});
+  });
+
+})();
+</script>
+</body>
+</html>
