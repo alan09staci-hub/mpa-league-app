@@ -1672,7 +1672,7 @@ async function renderAmbassadors() {
       <p><strong>${esc(me.name || 'Ambassador')}</strong>${me.duprRating != null ? ` · ${me.selfRated ? `Self-rated ${me.duprRating}` : `DUPR ${me.duprRating}`}` : ''}</p>
     </div>
     <div class="card">
-      <h2>What ambassadors do</h2>
+      <h2>Our mission is to promote the development and growth of pickleball within and around our surrounding communities.</h2>
       <ul>${AMBASSADOR_DUTIES.map((d) => `<li>${esc(d)}</li>`).join('')}</ul>
     </div>
     <div class="card">
