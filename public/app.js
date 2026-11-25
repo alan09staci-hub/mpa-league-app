@@ -4726,6 +4726,34 @@ function brRoundTitle(bracket, round, count, n, isLastWb, isLastLb) {
   return `Losers Round ${round + 1}`;
 }
 
+// Gold trophy, drawn as inline SVG (never an emoji) — shared by the
+// champion banner and the bracket tree's winner column.
+const BR_TROPHY_SVG = `<svg class="br-trophy" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><path d="M18 8h28v8a14 14 0 0 1-28 0V8z" fill="#8a6100"/><path d="M18 12c-9 0-9 10 1 10" fill="none" stroke="#8a6100" stroke-width="4" stroke-linecap="round"/><path d="M46 12c9 0 9 10-1 10" fill="none" stroke="#8a6100" stroke-width="4" stroke-linecap="round"/><rect x="29.5" y="32" width="5" height="9" fill="#8a6100"/><rect x="22" y="41" width="20" height="5" rx="2" fill="#8a6100"/><rect x="17" y="46" width="30" height="6" rx="2" fill="#8a6100"/><path d="M32 13l1.7 3.4 3.8.6-2.8 2.7.7 3.8-3.4-1.8-3.4 1.8.7-3.8-2.8-2.7 3.8-.6z" fill="#fff3bf"/></svg>`;
+
+// Pure layout for the bracket tree: columns of matches in bracket order —
+// winners rounds, then losers rounds, then one grand-final column holding
+// both grand-final games. A column draws the vertical elbow between its
+// feeders only when the previous winners round had exactly twice as many
+// matches — the clean two-to-one feed. Losers columns never draw it: their
+// boxes are also fed by teams dropping down from the winners side, so the
+// drop-in is explained in the caption under the tree instead.
+function brTreeColumns(roundGroups) {
+  const cols = [];
+  let prevW = null;
+  for (const g of roundGroups) {
+    if (g.bracket === 'G') {
+      const gf = cols.find((c) => c.bracket === 'G');
+      if (gf) { gf.matches.push(...g.matches); continue; }
+      cols.push({ bracket: 'G', head: 'Grand Final', matches: [...g.matches], vertical: false });
+      continue;
+    }
+    const vertical = g.bracket === 'W' && !!prevW && prevW.matches.length === 2 * g.matches.length;
+    cols.push({ bracket: g.bracket, head: g.title, matches: [...g.matches], vertical });
+    if (g.bracket === 'W') prevW = g;
+  }
+  return cols;
+}
+
 async function renderBrList() {
   // Nights list only — creating a night lives on the Admin page
   // ("Bracket" section), where the create card lives.
@@ -4806,6 +4834,44 @@ async function renderBrEvent(id) {
   let html = `<h1>${esc(event.name)}</h1>
     <p class="muted">${esc(rrWhen(event))} · Double elimination · ${rrKindLabel(event.kind)} · ${rrStatusLabel(event.status)}</p>
     ${event.status === 'setup' ? `<p class="muted">${esc(rrCloseLabel(event))}</p>` : ''}`;
+  // Champion banner — as soon as the grand final decides a champion, even
+  // before the night is marked finished. Gated on the podium, never on
+  // `finished`: the night can sit at "playing" with every match scored
+  // and still have a champion to show.
+  const gf2 = matches.find((m) => m.bracket === 'G' && m.round === 1);
+  const champTeam = podium && podium.champion != null ? byId.get(podium.champion) : null;
+  const runnerTeam = podium && podium.runnerUp != null ? byId.get(podium.runnerUp) : null;
+  const champRec = champTeam ? recByTeam.get(champTeam.id) : null;
+  const gfLine = (() => {
+    if (!champTeam || !gf1 || gf1.score1 == null) return '';
+    const champScore = (m) => (m.team1_id === champTeam.id ? m.score1 : m.score2);
+    const oppScore = (m) => (m.team1_id === champTeam.id ? m.score2 : m.score1);
+    const over = runnerTeam ? ` over ${esc(runnerTeam.label)}` : '';
+    if (gf2 && gf2.score1 != null) {
+      return `Lost the first Grand Final ${champScore(gf1)}–${oppScore(gf1)}, won the reset ${champScore(gf2)}–${oppScore(gf2)}${over}`;
+    }
+    return `Won the Grand Final ${champScore(gf1)}–${oppScore(gf1)}${over}`;
+  })();
+  if (champTeam) {
+    html += `<div class="br-champ">
+      <div class="br-champ-shimmer"></div>
+      <span class="br-spark" style="top:10%;left:5%;font-size:14px">✦</span>
+      <span class="br-spark" style="top:6%;left:24%;font-size:11px;animation-delay:.4s">✦</span>
+      <span class="br-spark" style="top:16%;left:42%;font-size:15px;animation-delay:.9s">✦</span>
+      <span class="br-spark" style="top:8%;left:63%;font-size:12px;animation-delay:.2s">✦</span>
+      <span class="br-spark" style="top:14%;left:82%;font-size:14px;animation-delay:1.2s">✦</span>
+      <span class="br-spark" style="top:22%;left:93%;font-size:11px;animation-delay:.7s">✦</span>
+      <span class="br-spark" style="top:68%;left:4%;font-size:12px;animation-delay:1.5s">✦</span>
+      <span class="br-spark" style="top:82%;left:16%;font-size:11px;animation-delay:.5s">✦</span>
+      <span class="br-spark" style="top:86%;left:55%;font-size:13px;animation-delay:1.1s">✦</span>
+      <span class="br-spark" style="top:74%;left:90%;font-size:12px;animation-delay:.3s">✦</span>
+      <div class="br-champ-trophy">${BR_TROPHY_SVG}</div>
+      <div class="br-champ-label">CHAMPIONS</div>
+      <div class="br-champ-team"><span class="br-seed">#${champTeam.seed}</span>${esc(champTeam.label)}</div>
+      <div class="br-champ-sub">#${champTeam.seed} seed${champRec ? ` · ${champRec.w}W–${champRec.l}L` : ''} · ${esc(event.name)}</div>
+      ${gfLine ? `<div class="br-champ-gf">${gfLine}</div>` : ''}
+    </div>`;
+  }
   if (finished) html += `<div class="banner finished">Night finished — final standings and payouts below.</div>`;
   const placeLabel = (n) => ['1ST', '2ND', '3RD'][n - 1] || `${n}TH`;
   if (event.kind === 'money' && payouts) {
@@ -4966,6 +5032,65 @@ async function renderBrEvent(id) {
     // results. (Round robin reorders its rounds with the round in play on
     // top; a bracket has several playable rounds at once, so reordering
     // would shuffle the bracket as the night goes on.)
+    // Complete bracket tree — display only. The round cards below stay the
+    // scoring surface (SCORE buttons, Edit links). Two rows, winners on
+    // top and losers below, flowing into the grand final and the trophy,
+    // like a paper bracket. Columns are 196px and the strip scrolls
+    // sideways on a phone so the boxes stay legible.
+    const treeCols = brTreeColumns(roundGroups);
+    const treeW = treeCols.filter((c) => c.bracket === 'W');
+    const treeL = treeCols.filter((c) => c.bracket === 'L');
+    const gfCol = treeCols.find((c) => c.bracket === 'G');
+    const treeMax = Math.max(treeW.length, treeL.length);
+    const treeN = treeMax + (gfCol ? 1 : 0) + 1; // data columns + grand final + trophy
+    const treeMatchHtml = (m) => {
+      const scored = m.score1 != null;
+      const t1Win = scored && m.score1 > m.score2;
+      const t2Win = scored && m.score2 > m.score1;
+      const label = m.bracket === 'G' && m.round === 1 ? 'Grand Final · Reset game' : `${esc(titleOf(m))} · Game ${m.game_no}`;
+      const treeRow = (which, won, lost, score) =>
+        `<div class="teams${won ? ' rr-team-win' : lost ? ' rr-team-lose' : ''}">${teamCell(m, which)}${scored ? ` <span class="rr-score">${score}</span>` : ''}</div>`;
+      return `<div class="br-tree-match">
+        <div class="br-tree-matchlabel">${label}</div>
+        ${treeRow(1, t1Win, t2Win, m.score1)}
+        <div class="br-tree-vs">VS</div>
+        ${treeRow(2, t2Win, t1Win, m.score2)}
+      </div>`;
+    };
+    const treeColHtml = (col, colIdx, rowSpec, center, spine) => {
+      // Vertical elbow between a receiver and its two feeders: with the
+      // column's boxes spread by space-around, receiver j's feeders sit at
+      // (j+0.25)/n and (j+0.75)/n of the column height.
+      const elbows = col.vertical
+        ? col.matches.map((_, j) => `<i class="br-tree-elbow" style="top:${((j + 0.25) * 100 / col.matches.length).toFixed(1)}%;height:${(50 / col.matches.length).toFixed(1)}%"></i>`).join('')
+        : '';
+      return `<div class="br-tree-col${colIdx === 1 ? ' br-tree-col-first' : ''}" style="grid-column:${colIdx};grid-row:${rowSpec}">
+        <div class="br-tree-colhead">${esc(col.head)}</div>
+        <div class="br-tree-colbody${center ? ' br-tree-colbody-center' : ''}">${spine ? '<i class="br-tree-spine"></i>' : ''}${elbows}${col.matches.map(treeMatchHtml).join('')}</div>
+      </div>`;
+    };
+    // Empty cells in the shorter row get a horizontal connector at the
+    // height of that row's last (single) match, so the flow reaches the
+    // grand final instead of stopping at a gap.
+    const treeGapHtml = (colIdx, rowSpec) => `<div class="br-tree-gap" style="grid-column:${colIdx};grid-row:${rowSpec}"><div class="br-tree-gap-spacer"></div><div class="br-tree-gap-body"><i></i></div></div>`;
+    const treeWinnerHtml = champTeam
+      ? `<div class="br-tree-winner"><div class="br-tree-trophy">${BR_TROPHY_SVG}</div><div class="br-tree-winnerlabel">WINNER</div><div class="br-tree-winnerteam"><span class="br-seed">#${champTeam.seed}</span>${esc(champTeam.label)}</div></div>`
+      : `<div class="br-tree-winner"><div class="br-tree-trophy">${BR_TROPHY_SVG}</div><div class="br-tree-winnerlabel">WINNER</div><div class="muted">To be decided</div></div>`;
+    const treeGaps = [];
+    for (let c = treeW.length + 1; c <= treeMax; c++) treeGaps.push(treeGapHtml(c, 1));
+    for (let c = treeL.length + 1; c <= treeMax; c++) treeGaps.push(treeGapHtml(c, 2));
+    html += `<h2>The complete bracket</h2>
+    <div class="br-tree"><div class="br-tree-grid" style="grid-template-columns:repeat(${treeN}, 196px)">
+      ${treeW.map((c, i) => treeColHtml(c, i + 1, 1, false, false)).join('')}
+      ${treeL.map((c, i) => treeColHtml(c, i + 1, 2, false, false)).join('')}
+      ${treeGaps.join('')}
+      ${gfCol ? treeColHtml(gfCol, treeMax + 1, '1 / 3', true, true) : ''}
+      <div class="br-tree-col" style="grid-column:${treeN};grid-row:1 / 3">
+        <div class="br-tree-colhead">Champion</div>
+        <div class="br-tree-colbody br-tree-colbody-center"><i class="br-tree-spine"></i>${treeWinnerHtml}</div>
+      </div>
+    </div>
+    <p class="muted small">Losers from the Winners' Bracket drop into the Losers' Bracket below · The Losers Final winner meets the Winners Final winner in the Grand Final. On a phone, swipe sideways to see the whole bracket.</p></div>`;
     html += `<h2>Bracket</h2>`;
     for (const g of roundGroups) {
       const allScored = g.matches.every((m) => m.score1 != null);

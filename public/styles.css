@@ -196,6 +196,45 @@ table.standings tr.you td { background: #fff8e1; }
 .br-seed { background: var(--yellow); color: var(--black); font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 999px; vertical-align: middle; letter-spacing: .5px; margin-right: 6px; }
 .br-slot-wait { color: var(--grey); font-style: italic; font-weight: 400; }
 
+/* ---------- bracket champion banner + tree ---------- */
+.br-champ { position: relative; overflow: hidden; border-radius: 14px; padding: 20px 16px 16px; margin: 12px 0; text-align: center; color: #3a2c00; background: linear-gradient(115deg, #f9d976 0%, #f7c948 35%, #eab93f 60%, #f7c948 100%); box-shadow: 0 4px 18px rgba(0,0,0,.20); }
+.br-champ-shimmer { position: absolute; inset: 0; background: linear-gradient(105deg, transparent 42%, rgba(255,255,255,.55) 50%, transparent 58%); transform: translateX(-130%); animation: br-shimmer 3.8s ease-in-out infinite; pointer-events: none; }
+@keyframes br-shimmer { 0% { transform: translateX(-130%); } 55%, 100% { transform: translateX(130%); } }
+.br-spark { position: absolute; color: #fff; line-height: 1; opacity: .9; animation: br-twinkle 1.9s ease-in-out infinite; pointer-events: none; }
+@keyframes br-twinkle { 0%, 100% { opacity: .15; transform: scale(.6) rotate(0deg); } 50% { opacity: 1; transform: scale(1.2) rotate(25deg); } }
+.br-champ .br-trophy { width: 76px; height: 76px; display: block; margin: 0 auto 4px; filter: drop-shadow(0 3px 4px rgba(0,0,0,.28)); }
+.br-champ-label { letter-spacing: 4px; font-weight: 800; font-size: 13px; }
+.br-champ-team { font-size: 30px; font-weight: 800; line-height: 1.15; margin: 2px 0; }
+.br-champ-team .br-seed { background: rgba(0,0,0,.25); color: #fff8dc; font-size: 12px; }
+.br-champ-sub { font-weight: 700; font-size: 15px; }
+.br-champ-gf { font-size: 14px; margin-top: 4px; }
+@media (prefers-reduced-motion: reduce) { .br-champ-shimmer, .br-spark { animation: none; } .br-champ-shimmer { display: none; } .br-spark { opacity: .5; } }
+
+.br-tree { overflow-x: auto; margin: 10px 0; padding: 2px 2px 8px; font-size: 14px; }
+.br-tree-grid { display: grid; grid-template-rows: auto auto; row-gap: 20px; width: max-content; }
+.br-tree-col { display: flex; flex-direction: column; padding: 0 12px; }
+.br-tree-colhead { text-align: center; font-size: 12px; line-height: 18px; height: 18px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; color: var(--grey); white-space: nowrap; margin-bottom: 8px; }
+.br-tree-colbody { position: relative; flex: 1; display: flex; flex-direction: column; justify-content: space-around; gap: 12px; }
+.br-tree-colbody-center { justify-content: center; }
+.br-tree-match { position: relative; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px; font-weight: 700; }
+.br-tree-match::before, .br-tree-match::after { content: ''; position: absolute; top: 50%; width: 12px; height: 2px; margin-top: -1px; background: #c9c9c9; }
+.br-tree-match::before { left: -12px; }
+.br-tree-match::after { right: -12px; }
+.br-tree-col-first .br-tree-match::before { display: none; }
+.br-tree-elbow { position: absolute; left: -12px; width: 2px; margin-left: -1px; background: #c9c9c9; }
+.br-tree-spine { position: absolute; left: -12px; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #c9c9c9; }
+.br-tree-matchlabel { font-size: 11px; font-weight: 700; color: var(--grey); margin-bottom: 5px; }
+.br-tree-vs { color: var(--grey); font-weight: 700; font-size: 11px; padding: 1px 0; }
+.br-tree-winner { position: relative; text-align: center; }
+.br-tree-winner::before { content: ''; position: absolute; left: -12px; top: 50%; width: 12px; height: 2px; margin-top: -1px; background: #c9c9c9; }
+.br-tree-trophy .br-trophy { width: 52px; height: 52px; display: block; margin: 0 auto 4px; }
+.br-tree-winnerlabel { letter-spacing: 3px; font-weight: 800; font-size: 12px; color: #8a6100; }
+.br-tree-winnerteam { font-weight: 800; font-size: 15px; margin-top: 2px; }
+.br-tree-gap { display: flex; flex-direction: column; padding: 0 12px; }
+.br-tree-gap-spacer { height: 26px; flex: none; }
+.br-tree-gap-body { position: relative; flex: 1; }
+.br-tree-gap-body i { position: absolute; left: -12px; right: -12px; top: 50%; height: 2px; margin-top: -1px; background: #c9c9c9; }
+
 /* ---------- game day ---------- */
 .banner { border-radius: 10px; padding: 10px 12px; margin: 10px 0; font-size: 14px; }
 .banner.organizer { background: #fff3cd; border: 1px solid #e6c200; }
