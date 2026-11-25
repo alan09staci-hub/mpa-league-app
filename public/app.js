@@ -3710,6 +3710,13 @@ function rotStandingLine(s, rule) {
   if (rule === 'wins') return `${s.w} wins · E/P ${ep} · ${s.earned} pts`;
   return `${s.w}W–${s.l}L · E/P ${ep}`;
 }
+// Tiebreak note under a rotating standing line: the reason the player
+// sits above or below the player they were tied with, or 'Tied' when the
+// chain ran out and they genuinely share the rank.
+function rotTieNote(s) {
+  if (s.tied) return 'Tied';
+  return s.reason || '';
+}
 // "X of N players in" for a rotating night, "X of N teams filled" for a
 // fixed one — used by the landing card and the nights list.
 function rrFillLabel(e) {
@@ -4290,17 +4297,19 @@ async function renderRotEvent(id, data) {
     <p class="muted">${esc(rrWhen(event))} · Free Charity · Rotating partners · Winner: ${esc(rotWinnerLabel(rule))} · ${rrStatusLabel(event.status)}</p>
     ${event.status === 'setup' ? `<p class="muted">${esc(rrCloseLabel(event))}</p>` : ''}`;
   if (finished) html += `<div class="banner finished">Night finished — final standings below.</div>`;
-  // Leaders while playing, Winners once finished — top 3 players who
-  // have played, by the night's winner rule.
+  // Leaders while playing, Winners once finished — top 3 places (a
+  // genuine tie can put more than 3 players on the card) among players
+  // who have played, by the night's winner rule and tiebreakers.
   if (standings.some((s) => s.played > 0)) {
     html += `<div class="card"><strong>${finished ? 'Winners' : 'Leaders'}</strong>
-      ${standings.filter((s) => s.played > 0).slice(0, 3)
+      ${standings.filter((s) => s.played > 0 && s.rank <= 3)
         .map((s) => `<div class="rr-place">
           <div class="rr-medal m${s.rank}">${s.rank}</div>
           <div class="rr-place-info">
             <div class="rr-place-label">${placeLabel(s.rank)} PLACE</div>
             <div class="rr-place-team">${esc(s.name)}</div>
             <div class="muted">${rotStandingLine(s, rule)}</div>
+            ${rotTieNote(s) ? `<div class="muted">${esc(rotTieNote(s))}</div>` : ''}
           </div>
         </div>`)
         .join('')}
@@ -4396,7 +4405,7 @@ async function renderRotEvent(id, data) {
       html += `<div class="card"><h3>Standings</h3>
         ${standings
           .map(
-            (s) => `<div>${s.rank}. <strong>${esc(s.name)}</strong>${meId && playersById.get(s.playerId)?.person_id === meId ? ' <span class="you-badge">YOU</span>' : ''} — ${rotStandingLine(s, rule)}</div>`
+            (s) => `<div>${s.rank}. <strong>${esc(s.name)}</strong>${meId && playersById.get(s.playerId)?.person_id === meId ? ' <span class="you-badge">YOU</span>' : ''} — ${rotStandingLine(s, rule)}${rotTieNote(s) ? ` · ${esc(rotTieNote(s))}` : ''}</div>`
           )
           .join('')}
       </div>`;

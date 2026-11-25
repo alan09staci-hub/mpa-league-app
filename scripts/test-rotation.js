@@ -341,16 +341,172 @@ const P = (id, name) => ({ id, name });
   );
   check(
     JSON.stringify(computePlayerStandings(players, ms, 'wins').map((r) => r.player.name)) ===
-      JSON.stringify(['A', 'B', 'C', 'D', 'E']),
-    `standings wins order A,B,C,D,E (got ${computePlayerStandings(players, ms, 'wins').map((r) => r.player.name).join(',')})`
+      JSON.stringify(['A', 'B', 'D', 'C', 'E']),
+    `standings wins order A,B,D,C,E (got ${computePlayerStandings(players, ms, 'wins').map((r) => r.player.name).join(',')})`
   );
+  // C and D tie at 2W under 'wins': their head-to-head is 1–1 (D won
+  // m3 11–10, C won m5 11–9 — m1/m4 they partnered), so point
+  // differential decides: D −7 beats C −8.
+  {
+    const winsRows = computePlayerStandings(players, ms, 'wins');
+    const byName = new Map(winsRows.map((r) => [r.player.name, r]));
+    check(byName.get('D').reason === 'Better point difference', `wins: D reason is PD (got ${byName.get('D').reason})`);
+    check(byName.get('C').reason === 'Worse point difference', `wins: C reason is PD (got ${byName.get('C').reason})`);
+    check(byName.get('A').reason == null && byName.get('B').reason == null, 'wins: A and B needed no tiebreaker');
+  }
   // Unscored matches are ignored; empty nights are all zeros with null ep.
   const partial = computePlayerStandings(players, [
     { p1_id: 0, p2_id: 1, p3_id: 2, p4_id: 3, score1: null, score2: null },
   ]);
   check(partial.every((r) => r.played === 0 && r.ep == null), 'standings: unscored matches ignored');
+  // Nobody has played anything, so the chain runs out immediately: every
+  // player genuinely ties for 1st.
+  check(partial.every((r) => r.rank === 1 && r.tied && r.reason == null), 'standings: unscored night is a genuine tie for 1st');
   const empty = computePlayerStandings(players, []);
   check(empty.every((r) => r.w === 0 && r.played === 0 && r.ep == null), 'standings: empty night is all zeros');
+  check(empty.every((r) => r.rank === 1 && r.tied && r.reason == null), 'standings: empty night is a genuine tie for 1st');
+}
+
+// --- tiebreaker chain ------------------------------------------------------
+// The approved chain: winner rule, then most wins, head-to-head wins vs
+// the tied players (opposite sides only), point differential,
+// head-to-head point differential, fewest points against, then a genuine
+// tie that shares the rank.
+
+// Live night, event 8 (Tuesday Night, Fri Nov 27 — the first rotating
+// night on the app): winner rule 'points'. The top three all banked 51
+// points at E/P 92.7%, and the old code listed them in signup order
+// (wilson on top). The chain must rank Frank 1st (he beat wilson 11–7 in
+// Round 1, their only meeting as opponents), wilson 2nd, Pat 3rd (fewer
+// wins, worse PD +10 vs +12). Players/matches are the live rows, verbatim.
+const E8_PLAYERS = [
+  P(1, 'Bradley'), P(2, 'wilson'), P(3, 'Brad'), P(4, 'Mika'),
+  P(5, 'Nathan'), P(6, 'Jason'), P(7, 'Jenn'), P(8, 'Pat'),
+  P(9, 'Jack'), P(10, 'Brittney'), P(11, 'Taylor'), P(12, 'Frank'),
+];
+const E8_MATCHES = [
+  { p1_id: 4, p2_id: 5, p3_id: 10, p4_id: 7, score1: 11, score2: 8 },
+  { p1_id: 1, p2_id: 12, p3_id: 3, p4_id: 2, score1: 11, score2: 7 },
+  { p1_id: 6, p2_id: 9, p3_id: 8, p4_id: 11, score1: 11, score2: 8 },
+  { p1_id: 5, p2_id: 2, p3_id: 3, p4_id: 4, score1: 11, score2: 9 },
+  { p1_id: 6, p2_id: 12, p3_id: 9, p4_id: 1, score1: 7, score2: 11 },
+  { p1_id: 10, p2_id: 11, p3_id: 7, p4_id: 8, score1: 5, score2: 11 },
+  { p1_id: 1, p2_id: 10, p3_id: 8, p4_id: 5, score1: 7, score2: 11 },
+  { p1_id: 12, p2_id: 9, p3_id: 4, p4_id: 6, score1: 11, score2: 4 },
+  { p1_id: 7, p2_id: 11, p3_id: 3, p4_id: 2, score1: 6, score2: 11 },
+  { p1_id: 10, p2_id: 8, p3_id: 2, p4_id: 12, score1: 10, score2: 11 },
+  { p1_id: 6, p2_id: 1, p3_id: 3, p4_id: 4, score1: 11, score2: 8 },
+  { p1_id: 5, p2_id: 7, p3_id: 9, p4_id: 11, score1: 11, score2: 7 },
+  { p1_id: 1, p2_id: 5, p3_id: 7, p4_id: 6, score1: 3, score2: 11 },
+  { p1_id: 11, p2_id: 4, p3_id: 8, p4_id: 12, score1: 7, score2: 11 },
+  { p1_id: 9, p2_id: 10, p3_id: 3, p4_id: 2, score1: 3, score2: 11 },
+];
+{
+  const rows = computePlayerStandings(E8_PLAYERS, E8_MATCHES, 'points');
+  const names = rows.map((r) => r.player.name);
+  check(
+    JSON.stringify(names) === JSON.stringify(['Frank', 'wilson', 'Pat', 'Nathan', 'Jenn', 'Brad', 'Jason', 'Jack', 'Bradley', 'Mika', 'Brittney', 'Taylor']),
+    `event 8 points order (got ${names.join(',')})`
+  );
+  const byName = new Map(rows.map((r) => [r.player.name, r]));
+  check(byName.get('Frank').rank === 1 && byName.get('wilson').rank === 2 && byName.get('Pat').rank === 3, 'event 8 points: Frank 1st, wilson 2nd, Pat 3rd');
+  check(byName.get('Frank').reason === 'Beat wilson head-to-head', `event 8: Frank reason (got ${byName.get('Frank').reason})`);
+  check(byName.get('wilson').reason === 'Lost to Frank head-to-head', `event 8: wilson reason (got ${byName.get('wilson').reason})`);
+  check(byName.get('Pat').reason === 'Fewer wins', `event 8: Pat reason (got ${byName.get('Pat').reason})`);
+  check(byName.get('Nathan').reason === 'More wins', `event 8: Nathan reason (got ${byName.get('Nathan').reason})`);
+  check(byName.get('Jenn').reason === 'Fewer wins', `event 8: Jenn reason (got ${byName.get('Jenn').reason})`);
+  // Bradley and Jack tie at 43 pts and 3W and never faced each other
+  // (they partnered in R2) — point differential decides: Jack +2 beats
+  // Bradley −1.
+  check(byName.get('Jack').reason === 'Better point difference', `event 8: Jack reason (got ${byName.get('Jack').reason})`);
+  check(byName.get('Bradley').reason === 'Worse point difference', `event 8: Bradley reason (got ${byName.get('Bradley').reason})`);
+  check(byName.get('Brad').reason == null && byName.get('Jason').reason == null && byName.get('Mika').reason == null, 'event 8: Brad, Jason, Mika needed no tiebreaker');
+  // The bottom two banked identical lines (33 pts, 0W–5L, 55 against) and
+  // never faced each other — a genuine tie that shares 11th.
+  check(byName.get('Brittney').rank === 11 && byName.get('Taylor').rank === 11, 'event 8: Brittney and Taylor share 11th');
+  check(byName.get('Brittney').tied && byName.get('Taylor').tied, 'event 8: Brittney and Taylor are marked tied');
+  check(byName.get('Brittney').reason == null && byName.get('Taylor').reason == null, 'event 8: tied players carry no reason');
+  check(rows.filter((r) => !r.tied).every((r) => r.reason !== undefined), 'event 8: every row carries a reason field');
+  // Everyone played 5 games, so E/P is the same ranking as points here.
+  const epRows = computePlayerStandings(E8_PLAYERS, E8_MATCHES, 'ep');
+  check(
+    JSON.stringify(epRows.map((r) => r.player.name)) === JSON.stringify(names) &&
+      JSON.stringify(epRows.map((r) => r.rank)) === JSON.stringify(rows.map((r) => r.rank)),
+    `event 8 ep order matches points order (got ${epRows.map((r) => r.player.name).join(',')})`
+  );
+  // Wins rule: 4W group {wilson, Frank, Nathan} — Frank first on the
+  // head-to-head over wilson, then wilson over Nathan on PD (+12 vs +5).
+  // 3W group {Pat, Jenn, Jason, Bradley, Jack} — head-to-head mini-table
+  // is Jack 3, Jenn 2, Jason 2, Pat 1, Bradley 1: Jack first, then Jenn
+  // over Jason on PD (+10 vs +3), then Pat over Bradley on PD (+10 vs
+  // −1). Jenn beat Jack directly once but loses the mini-table on
+  // aggregate, so her reason stays generic.
+  const winsRows = computePlayerStandings(E8_PLAYERS, E8_MATCHES, 'wins');
+  check(
+    JSON.stringify(winsRows.map((r) => r.player.name)) === JSON.stringify(['Frank', 'wilson', 'Nathan', 'Jack', 'Jenn', 'Jason', 'Pat', 'Bradley', 'Brad', 'Mika', 'Brittney', 'Taylor']),
+    `event 8 wins order (got ${winsRows.map((r) => r.player.name).join(',')})`
+  );
+  const winsByName = new Map(winsRows.map((r) => [r.player.name, r]));
+  check(winsByName.get('Nathan').reason === 'Worse point difference', `event 8 wins: Nathan reason (got ${winsByName.get('Nathan').reason})`);
+  check(winsByName.get('Jack').reason === 'More head-to-head wins', `event 8 wins: Jack reason (got ${winsByName.get('Jack').reason})`);
+  check(winsByName.get('Jenn').reason === 'Fewer head-to-head wins', `event 8 wins: Jenn reason (got ${winsByName.get('Jenn').reason})`);
+  check(winsByName.get('Jason').reason === 'Worse point difference', `event 8 wins: Jason reason (got ${winsByName.get('Jason').reason})`);
+  check(winsByName.get('Pat').reason === 'Lost to Jason head-to-head', `event 8 wins: Pat reason (got ${winsByName.get('Pat').reason})`);
+  check(winsByName.get('Bradley').reason === 'Worse point difference', `event 8 wins: Bradley reason (got ${winsByName.get('Bradley').reason})`);
+  check(winsByName.get('Brittney').tied && winsByName.get('Taylor').tied, 'event 8 wins: Brittney and Taylor still tied');
+}
+
+// Synthetic head-to-head case: A and B tie on points (35) and wins (2),
+// and A beat B twice (11–7, 11–6) — the head-to-head decides it.
+{
+  const players = [P(0, 'A'), P(1, 'B'), P(2, 'C'), P(3, 'D'), P(4, 'E'), P(5, 'F')];
+  const ms = [
+    { p1_id: 0, p2_id: 2, p3_id: 1, p4_id: 3, score1: 11, score2: 7 },
+    { p1_id: 0, p2_id: 3, p3_id: 1, p4_id: 2, score1: 11, score2: 6 },
+    { p1_id: 1, p2_id: 4, p3_id: 5, p4_id: 2, score1: 11, score2: 4 },
+    { p1_id: 1, p2_id: 5, p3_id: 3, p4_id: 4, score1: 11, score2: 4 },
+    { p1_id: 0, p2_id: 4, p3_id: 2, p4_id: 5, score1: 5, score2: 11 },
+    { p1_id: 0, p2_id: 5, p3_id: 3, p4_id: 4, score1: 8, score2: 11 },
+  ];
+  const rows = computePlayerStandings(players, ms, 'points');
+  check(
+    JSON.stringify(rows.map((r) => r.player.name)) === JSON.stringify(['A', 'B', 'F', 'D', 'C', 'E']),
+    `h2h case order A,B,F,D,C,E (got ${rows.map((r) => r.player.name).join(',')})`
+  );
+  const byName = new Map(rows.map((r) => [r.player.name, r]));
+  check(byName.get('A').reason === 'Beat B head-to-head', `h2h case: A reason (got ${byName.get('A').reason})`);
+  check(byName.get('B').reason === 'Lost to A head-to-head', `h2h case: B reason (got ${byName.get('B').reason})`);
+  check(byName.get('F').reason == null, 'h2h case: F needed no tiebreaker');
+}
+
+// Rock-paper-scissors mini-table: X, Y, Z tie on points (21) and wins
+// (1) and each went 1–1 in the mini-table (X beat Y, Y beat Z, Z beat
+// X), so the head-to-head falls through and point differential decides:
+// Y −5, Z −10, X −11.
+{
+  const players = [P(0, 'X'), P(1, 'Y'), P(2, 'Z'), P(3, 'A'), P(4, 'B'), P(5, 'C'), P(6, 'D'), P(7, 'E'), P(8, 'F')];
+  const ms = [
+    { p1_id: 0, p2_id: 3, p3_id: 1, p4_id: 4, score1: 11, score2: 10 },
+    { p1_id: 1, p2_id: 5, p3_id: 2, p4_id: 6, score1: 11, score2: 4 },
+    { p1_id: 2, p2_id: 7, p3_id: 0, p4_id: 8, score1: 11, score2: 9 },
+    { p1_id: 0, p2_id: 4, p3_id: 5, p4_id: 6, score1: 1, score2: 11 },
+    { p1_id: 1, p2_id: 3, p3_id: 7, p4_id: 8, score1: 0, score2: 11 },
+    { p1_id: 2, p2_id: 4, p3_id: 3, p4_id: 6, score1: 6, score2: 11 },
+  ];
+  const rows = computePlayerStandings(players, ms, 'points');
+  check(
+    JSON.stringify(rows.map((r) => r.player.name)) === JSON.stringify(['D', 'E', 'C', 'A', 'Y', 'Z', 'X', 'F', 'B']),
+    `rps case order D,E,C,A,Y,Z,X,F,B (got ${rows.map((r) => r.player.name).join(',')})`
+  );
+  const byName = new Map(rows.map((r) => [r.player.name, r]));
+  check(byName.get('D').reason == null, 'rps case: D needed no tiebreaker');
+  check(byName.get('E').reason === 'More head-to-head wins', `rps case: E reason (got ${byName.get('E').reason})`);
+  check(byName.get('C').reason === 'Fewer head-to-head wins', `rps case: C reason (got ${byName.get('C').reason})`);
+  check(byName.get('A').reason === 'Worse point difference', `rps case: A reason (got ${byName.get('A').reason})`);
+  check(byName.get('Y').reason === 'Better point difference', `rps case: Y reason (got ${byName.get('Y').reason})`);
+  check(byName.get('Z').reason === 'Worse point difference', `rps case: Z reason (got ${byName.get('Z').reason})`);
+  check(byName.get('X').reason === 'Worse point difference', `rps case: X reason (got ${byName.get('X').reason})`);
+  check(byName.get('F').reason == null && byName.get('B').reason == null, 'rps case: F and B needed no tiebreaker');
 }
 
 // Full simulated night: play a built schedule with random scores, then the

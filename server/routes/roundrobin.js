@@ -179,6 +179,8 @@ async function rotEventDetail(event, req) {
       against: s.against,
       possible: s.possible,
       ep: s.ep,
+      tied: !!s.tied,
+      reason: s.reason || null,
     })),
     payouts: null,
     byes,

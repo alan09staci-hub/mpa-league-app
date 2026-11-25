@@ -31,11 +31,15 @@
 //     (Brad main, Mika/Wilson rotating) it reproduces the preview's
 //     captured R1–R5 exactly (verified in scripts/test-rotation.js).
 //
-// Standings: ranked per player by the night's winner rule:
-//   - 'ep' (default): E/P Diff% (earned/possible), tie-break wins desc,
-//     against asc, earned desc.
-//   - 'points': most total points (earned desc), then E/P, then wins.
-//   - 'wins': most game wins first (wins desc), then E/P, then earned.
+// Standings: ranked per player by the night's winner rule, then the
+// tiebreaker chain (approved 2026-11-25): most game wins, head-to-head
+// wins against the other tied players (opposite sides only), point
+// differential, head-to-head point differential, fewest points against,
+// then a genuine tie — tied players share the rank (two 1sts, then 3rd)
+// instead of an invented order. Each row also carries `reason`, a short
+// plain line naming the level that decided its rank against the adjacent
+// player it was tied with (null when no tiebreaker was needed), and
+// `tied` for a genuine tie.
 // "Possible" is 11 per game played — the winner always reaches exactly
 // 11, so E/P never exceeds 100%.
 
@@ -209,14 +213,53 @@ function buildRotationSchedule(playerIds, opts = {}) {
 // score1, score2 (score1 is the (p1,p2) side's score).
 // winnerRule: 'ep' | 'points' | 'wins' (default 'ep').
 // Returns ranked rows: [{ player, rank, w, l, played, earned, against,
-// possible, ep }].
+// possible, ep, tied, reason }].
+//
+// Tiebreaker chain (approved 2026-11-25), applied in this order after the
+// night's winner rule:
+//   1. the winner rule itself (most total points, E/P Diff%, or most wins)
+//   2. most game wins (a no-op when wins is the primary rule)
+//   3. head-to-head: most games won against the other tied players — only
+//      games where they were on opposite sides count (partnering does not)
+//   4. point differential (earned minus against)
+//   5. head-to-head point differential (vs the other tied players)
+//   6. fewest points against
+//   7. genuine tie: players still tied share the rank (standard
+//      competition ranking — two 1sts, then 3rd) instead of an invented
+//      order.
+// `tied` marks a genuine tie; `reason` is a short plain line naming the
+// level that decided the row's rank against the adjacent player it was
+// tied with at the primary rule (null when no tiebreaker was needed, or
+// when the row is genuinely tied).
 function computePlayerStandings(players, matches, winnerRule = 'ep') {
   const byId = new Map(
     players.map((p) => [
       p.id,
-      { player: p, w: 0, l: 0, played: 0, earned: 0, against: 0, possible: 0 },
+      {
+        player: p,
+        w: 0,
+        l: 0,
+        played: 0,
+        earned: 0,
+        against: 0,
+        possible: 0,
+        h2h: new Map(),
+      },
     ])
   );
+  // Head-to-head note, from one player's perspective: games won/lost and
+  // points for/against against one opponent (opposite sides only).
+  const h2hNote = (row, oppId, won, forPts, againstPts) => {
+    let rec = row.h2h.get(oppId);
+    if (!rec) {
+      rec = { w: 0, l: 0, forPts: 0, againstPts: 0 };
+      row.h2h.set(oppId, rec);
+    }
+    if (won) rec.w += 1;
+    else rec.l += 1;
+    rec.forPts += forPts;
+    rec.againstPts += againstPts;
+  };
   for (const m of matches) {
     if (m.score1 == null || m.score2 == null) continue;
     const a1 = byId.get(m.p1_id);
@@ -238,29 +281,159 @@ function computePlayerStandings(players, matches, winnerRule = 'ep') {
       p.earned += m.score2;
       p.against += m.score1;
     }
-    const winners = m.score1 > m.score2 ? sideA : sideB;
-    const losers = m.score1 > m.score2 ? sideB : sideA;
+    const aWon = m.score1 > m.score2;
+    const winners = aWon ? sideA : sideB;
+    const losers = aWon ? sideB : sideA;
     for (const p of winners) p.w += 1;
     for (const p of losers) p.l += 1;
+    for (const a of sideA) {
+      for (const b of sideB) {
+        h2hNote(a, b.player.id, aWon, m.score1, m.score2);
+        h2hNote(b, a.player.id, !aWon, m.score2, m.score1);
+      }
+    }
   }
   const rows = [...byId.values()].map((r) => ({
     ...r,
     ep: r.possible > 0 ? r.earned / r.possible : null,
   }));
-  const epOf = (r) => r.ep ?? -1;
-  if (winnerRule === 'points') {
-    rows.sort((x, y) => y.earned - x.earned || epOf(y) - epOf(x) || y.w - x.w);
-  } else if (winnerRule === 'wins') {
-    rows.sort((x, y) => y.w - x.w || epOf(y) - epOf(x) || y.earned - x.earned);
-  } else {
-    rows.sort(
-      (x, y) => epOf(y) - epOf(x) || y.w - x.w || x.against - y.against || y.earned - x.earned
-    );
-  }
-  rows.forEach((r, i) => {
-    r.rank = i + 1;
+  if (!rows.length) return [];
+
+  // Head-to-head totals against the other players in a tied group.
+  const h2hWins = (row, group) => {
+    let n = 0;
+    for (const o of group) {
+      if (o === row) continue;
+      const rec = row.h2h.get(o.player.id);
+      if (rec) n += rec.w;
+    }
+    return n;
+  };
+  const h2hPd = (row, group) => {
+    let n = 0;
+    for (const o of group) {
+      if (o === row) continue;
+      const rec = row.h2h.get(o.player.id);
+      if (rec) n += rec.forPts - rec.againstPts;
+    }
+    return n;
+  };
+  // One comparator per level: <0 when a ranks above b, 0 when tied.
+  // Head-to-head levels take the tied group as context.
+  const epCmp = (a, b) => {
+    if (a.ep == null && b.ep == null) return 0;
+    if (a.ep == null) return 1;
+    if (b.ep == null) return -1;
+    // Exact fraction comparison — no float rounding on close E/Ps.
+    return b.earned * a.possible - a.earned * b.possible;
+  };
+  const primaryCmp =
+    winnerRule === 'points'
+      ? (a, b) => b.earned - a.earned
+      : winnerRule === 'wins'
+        ? (a, b) => b.w - a.w
+        : epCmp;
+  const levels = [
+    { id: 'primary', cmp: primaryCmp },
+    { id: 'wins', cmp: (a, b) => b.w - a.w },
+    { id: 'h2h', cmp: (a, b, g) => h2hWins(b, g) - h2hWins(a, g) },
+    { id: 'pd', cmp: (a, b) => b.earned - b.against - (a.earned - a.against) },
+    { id: 'h2hpd', cmp: (a, b, g) => h2hPd(b, g) - h2hPd(a, g) },
+    { id: 'against', cmp: (a, b) => a.against - b.against },
+  ];
+  // Split a group into subgroups that tie at one level, keeping the
+  // group's order inside each subgroup (stable — a genuine tie keeps
+  // signup order on screen).
+  const splitGroup = (group, level) => {
+    const sorted = [...group].sort((a, b) => level.cmp(a, b, group));
+    const out = [];
+    let run = [sorted[0]];
+    for (let i = 1; i < sorted.length; i++) {
+      if (level.cmp(sorted[i - 1], sorted[i], group) === 0) run.push(sorted[i]);
+      else {
+        out.push(run);
+        run = [sorted[i]];
+      }
+    }
+    out.push(run);
+    return out;
+  };
+
+  // Refine the groups level by level: each level splits every group that
+  // is still tied at the levels above it.
+  let groups = [rows];
+  let primaryGroups = groups;
+  levels.forEach((level, li) => {
+    const next = [];
+    for (const g of groups) next.push(...splitGroup(g, level));
+    groups = next;
+    if (li === 0) primaryGroups = groups;
   });
-  return rows;
+
+  // Standard competition ranking: a genuine tie shares the rank, and the
+  // next rank skips the tied places (two 1sts, then 3rd).
+  const ordered = groups.flat();
+  let pos = 0;
+  for (const g of groups) {
+    for (const r of g) {
+      r.rank = pos + 1;
+      r.tied = g.length > 1;
+      r.reason = null;
+    }
+    pos += g.length;
+  }
+
+  // Reason for a row that was tied at the primary rule but ended up alone
+  // at its rank: the first tiebreaker level that separated it from the
+  // adjacent player it was tied with (the one above if there is one,
+  // otherwise the one below). Walk the levels, narrowing to the subgroup
+  // still tied with the row, until the neighbour separates.
+  const reasonText = (levelId, won, row, neighbor) => {
+    switch (levelId) {
+      case 'wins':
+        return won ? 'More wins' : 'Fewer wins';
+      case 'h2h': {
+        const rec = row.h2h.get(neighbor.player.id);
+        if (won && rec && rec.w > rec.l) return `Beat ${neighbor.player.name} head-to-head`;
+        if (!won && rec && rec.l > rec.w) return `Lost to ${neighbor.player.name} head-to-head`;
+        return won ? 'More head-to-head wins' : 'Fewer head-to-head wins';
+      }
+      case 'pd':
+        return won ? 'Better point difference' : 'Worse point difference';
+      case 'h2hpd':
+        return won ? 'Better head-to-head point difference' : 'Worse head-to-head point difference';
+      case 'against':
+        return won ? 'Let in fewer points' : 'Let in more points';
+      default:
+        return null;
+    }
+  };
+  for (let i = 0; i < ordered.length; i++) {
+    const row = ordered[i];
+    if (row.tied) continue;
+    const pGroup = primaryGroups.find((g) => g.includes(row));
+    if (!pGroup || pGroup.length < 2) continue;
+    const above = i > 0 && pGroup.includes(ordered[i - 1]) ? ordered[i - 1] : null;
+    const below =
+      i + 1 < ordered.length && pGroup.includes(ordered[i + 1]) ? ordered[i + 1] : null;
+    const neighbor = above || below;
+    if (!neighbor) continue;
+    let group = pGroup;
+    for (let li = 1; li < levels.length; li++) {
+      const level = levels[li];
+      const c = level.cmp(row, neighbor, group);
+      if (c !== 0) {
+        row.reason = reasonText(level.id, c < 0, row, neighbor);
+        break;
+      }
+      group = splitGroup(group, level).find((g) => g.includes(row));
+    }
+  }
+
+  return ordered.map((r) => {
+    const { h2h, ...rest } = r;
+    return rest;
+  });
 }
 
 module.exports = {
