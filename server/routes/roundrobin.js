@@ -19,6 +19,12 @@ const {
   scoreError,
   signupCloseAt,
 } = require('../lib/roundrobin');
+const {
+  ROUNDS: ROT_ROUNDS,
+  MAX_ROTATORS,
+  buildRotationSchedule,
+  computePlayerStandings,
+} = require('../lib/rotation');
 
 const router = express.Router();
 const MAX_TEAMS = 24; // 48 players per night — the absolute ceiling
@@ -27,6 +33,38 @@ const MAX_TEAMS = 24; // 48 players per night — the absolute ceiling
 // back to the global ceiling for nights created before migration 008.
 function nightMaxTeams(event) {
   return event.max_teams || MAX_TEAMS;
+}
+
+// Per-night player cap for rotating nights (migration 016); fixed nights
+// keep using max_teams.
+function nightMaxPlayers(event) {
+  return event.max_players || 12;
+}
+
+// Rotating-night reads: individual players and their matches.
+async function getRotPlayers(eventId) {
+  const { rows } = await pool.query(
+    'SELECT * FROM rr_rot_players WHERE event_id = $1 ORDER BY id',
+    [eventId]
+  );
+  return rows;
+}
+
+async function getRotMatches(eventId) {
+  const { rows } = await pool.query(
+    'SELECT * FROM rr_rot_matches WHERE event_id = $1 ORDER BY round, court',
+    [eventId]
+  );
+  return rows;
+}
+
+// The main player (at most one) and the rotators in cycle order.
+function rotMainAndRotators(players) {
+  const main = players.find((p) => p.is_main) || null;
+  const rotators = players
+    .filter((p) => p.rotator_order != null)
+    .sort((a, b) => a.rotator_order - b.rotator_order);
+  return { main, rotators };
 }
 
 // True once the sign-up deadline has passed (only 'day-3h' nights have
@@ -92,8 +130,67 @@ function teamLabel(t) {
   return `${t.player1} & ${t.player2}`;
 }
 
+// Full event payload for a rotating night: players (not teams), the
+// rotation matches, per-player standings by the night's winner rule, and
+// the main player / rotators. Teams, solos and payouts stay empty — a
+// rotating night is individuals only, charity only.
+async function rotEventDetail(event, req) {
+  const [players, matches] = await Promise.all([
+    getRotPlayers(event.id),
+    getRotMatches(event.id),
+  ]);
+  const standings = computePlayerStandings(
+    players.map((p) => ({ id: p.id, name: p.name })),
+    matches,
+    event.winner_rule || 'ep'
+  );
+  const { main, rotators } = rotMainAndRotators(players);
+  // Byes: a player with no match in a round sits that round out.
+  const maxRound = matches.reduce((m, x) => Math.max(m, x.round), 0);
+  const byes = [];
+  for (let r = 1; r <= maxRound; r++) {
+    const playing = new Set();
+    matches
+      .filter((m) => m.round === r)
+      .forEach((m) => {
+        playing.add(m.p1_id);
+        playing.add(m.p2_id);
+        playing.add(m.p3_id);
+        playing.add(m.p4_id);
+      });
+    players
+      .filter((p) => !playing.has(p.id))
+      .forEach((p) => byes.push({ round: r, playerId: p.id }));
+  }
+  return {
+    event,
+    teams: [],
+    solos: [],
+    players,
+    matches,
+    standings: standings.map((s) => ({
+      rank: s.rank,
+      playerId: s.player.id,
+      name: s.player.name,
+      w: s.w,
+      l: s.l,
+      played: s.played,
+      earned: s.earned,
+      against: s.against,
+      possible: s.possible,
+      ep: s.ep,
+    })),
+    payouts: null,
+    byes,
+    mainPlayerId: main ? main.id : null,
+    rotatorIds: rotators.map((p) => p.id),
+    isAdmin: await auth.isAdmin(req),
+  };
+}
+
 // Full event payload: event + teams + solos + matches + standings + payouts + byes.
 async function eventDetail(event, req) {
+  if (event.format === 'rotating') return rotEventDetail(event, req);
   const [teams, matches, solos] = await Promise.all([
     getTeams(event.id),
     getMatches(event.id),
@@ -178,8 +275,11 @@ router.get('/round-robin/events', (req, res) =>
       `SELECT e.*,
               (SELECT COUNT(*) FROM rr_teams t WHERE t.event_id = e.id) AS team_count,
               (SELECT COUNT(*) FROM rr_solos s WHERE s.event_id = e.id) AS solo_count,
-              (SELECT COUNT(*) FROM rr_matches m WHERE m.event_id = e.id) AS match_count,
-              (SELECT COUNT(*) FROM rr_matches m WHERE m.event_id = e.id AND m.score1 IS NOT NULL) AS scored_count
+              (SELECT COUNT(*) FROM rr_rot_players p WHERE p.event_id = e.id) AS player_count,
+              (SELECT COUNT(*) FROM rr_matches m WHERE m.event_id = e.id) +
+              (SELECT COUNT(*) FROM rr_rot_matches m WHERE m.event_id = e.id) AS match_count,
+              (SELECT COUNT(*) FROM rr_matches m WHERE m.event_id = e.id AND m.score1 IS NOT NULL) +
+              (SELECT COUNT(*) FROM rr_rot_matches m WHERE m.event_id = e.id AND m.score1 IS NOT NULL) AS scored_count
          FROM rr_events e ORDER BY e.event_date DESC, e.id DESC`
     );
     res.json({ events: rows });
@@ -203,8 +303,12 @@ router.post('/round-robin/events/:id/matches/:mid/score', (req, res) =>
     if (event.status === 'completed') {
       return bad(res, 409, 'This night is finished. Reopen it from Admin to change a score.');
     }
+    // Rotating nights keep their matches in rr_rot_matches; fixed nights
+    // in rr_matches. The table name comes from the event row, never from
+    // the request.
+    const matchTable = event.format === 'rotating' ? 'rr_rot_matches' : 'rr_matches';
     const { rows } = await pool.query(
-      'SELECT * FROM rr_matches WHERE id = $1 AND event_id = $2',
+      `SELECT * FROM ${matchTable} WHERE id = $1 AND event_id = $2`,
       [req.params.mid, event.id]
     );
     const match = rows[0];
@@ -212,7 +316,7 @@ router.post('/round-robin/events/:id/matches/:mid/score', (req, res) =>
     let { score1, score2 } = req.body;
     const blank = score1 == null || score1 === '' || score2 == null || score2 === '';
     if (blank) {
-      await pool.query('UPDATE rr_matches SET score1 = NULL, score2 = NULL WHERE id = $1', [match.id]);
+      await pool.query(`UPDATE ${matchTable} SET score1 = NULL, score2 = NULL WHERE id = $1`, [match.id]);
       return res.json({ ok: true, cleared: true });
     }
     score1 = asInt(score1);
@@ -222,7 +326,7 @@ router.post('/round-robin/events/:id/matches/:mid/score', (req, res) =>
     }
     const err = scoreError(score1, score2, match.target_score);
     if (err) return bad(res, 400, err);
-    await pool.query('UPDATE rr_matches SET score1 = $1, score2 = $2 WHERE id = $3', [score1, score2, match.id]);
+    await pool.query(`UPDATE ${matchTable} SET score1 = $1, score2 = $2 WHERE id = $3`, [score1, score2, match.id]);
     res.json({ ok: true, score1, score2 });
   }, req, res)
 );
@@ -259,6 +363,9 @@ router.post('/round-robin/events/:id/join-team', (req, res) =>
   handle(async () => {
     const event = await getEvent(asInt(req.params.id));
     if (!event) return bad(res, 404, 'Round robin not found.');
+    if (event.format === 'rotating') {
+      return bad(res, 400, 'This night rotates partners — join as an individual, not as a team.');
+    }
     if (joinNotOpen(event)) return bad(res, 409, 'Sign-ups are not open for this night.');
     if (signupClosed(event)) return bad(res, 409, 'Sign-ups have closed.');
     const personId = asInt(req.body.personId);
@@ -288,6 +395,9 @@ router.post('/round-robin/events/:id/join-solo', (req, res) =>
   handle(async () => {
     const event = await getEvent(asInt(req.params.id));
     if (!event) return bad(res, 404, 'Round robin not found.');
+    if (event.format === 'rotating') {
+      return bad(res, 400, 'This night rotates partners — join as an individual.');
+    }
     if (joinNotOpen(event)) return bad(res, 409, 'Sign-ups are not open for this night.');
     if (signupClosed(event)) return bad(res, 409, 'Sign-ups have closed.');
     const personId = asInt(req.body.personId);
@@ -317,6 +427,44 @@ router.post('/round-robin/events/:id/join-solo', (req, res) =>
   }, req, res)
 );
 
+// Join a rotating night as an individual — no team, no solo pairing.
+// Rotating nights only; fixed nights keep join-team / join-solo.
+router.post('/round-robin/events/:id/join', (req, res) =>
+  handle(async () => {
+    const event = await getEvent(asInt(req.params.id));
+    if (!event) return bad(res, 404, 'Round robin not found.');
+    if (event.format !== 'rotating') {
+      return bad(res, 400, 'This night uses fixed teams — join as a team or solo.');
+    }
+    if (joinNotOpen(event)) return bad(res, 409, 'Sign-ups are not open for this night.');
+    if (signupClosed(event)) return bad(res, 409, 'Sign-ups have closed.');
+    const personId = asInt(req.body.personId);
+    if (personId == null) return bad(res, 400, 'Pick who you are.');
+    const person = await getPerson(personId);
+    if (!person) return bad(res, 404, 'Person not found.');
+    const players = await getRotPlayers(event.id);
+    if (players.some((p) => p.person_id === personId)) {
+      return bad(res, 409, 'You are already on this night.');
+    }
+    if (players.length >= nightMaxPlayers(event)) {
+      return bad(res, 400, `At most ${nightMaxPlayers(event)} players per night.`);
+    }
+    let rows;
+    try {
+      ({ rows } = await pool.query(
+        'INSERT INTO rr_rot_players (event_id, name, person_id) VALUES ($1, $2, $3) RETURNING *',
+        [event.id, person.name, person.id]
+      ));
+    } catch (e) {
+      // The UNIQUE(event_id, person_id) backstop — a second sign-up
+      // racing the check above lands here instead of a 500.
+      if (e.code === '23505') return bad(res, 409, 'You are already on this night.');
+      throw e;
+    }
+    res.json({ ok: true, player: rows[0] });
+  }, req, res)
+);
+
 // Leave while the night is still in setup. No leaving once it is built —
 // the schedule is fixed then, like a league game day after the deadline.
 router.post('/round-robin/events/:id/leave', (req, res) =>
@@ -328,6 +476,14 @@ router.post('/round-robin/events/:id/leave', (req, res) =>
     }
     const personId = asInt(req.body.personId);
     if (personId == null) return bad(res, 400, 'Pick who you are.');
+    if (event.format === 'rotating') {
+      const { rowCount } = await pool.query(
+        'DELETE FROM rr_rot_players WHERE event_id = $1 AND person_id = $2',
+        [event.id, personId]
+      );
+      if (!rowCount) return bad(res, 404, 'You are not on this night.');
+      return res.json({ ok: true, left: 'player' });
+    }
     const teamDel = await pool.query(
       'DELETE FROM rr_teams WHERE event_id = $1 AND (person1_id = $2 OR person2_id = $2)',
       [event.id, personId]
@@ -356,6 +512,20 @@ router.post('/admin/round-robin/events', auth.requireAdmin, (req, res) =>
     if (kind === 'money' && (feeCents == null || feeCents < 0 || feeCents > 100000)) {
       return bad(res, 400, 'Entry fee must be between $0 and $1,000 per person.');
     }
+    // Rotating partners is a new format (migration 016): partners change
+    // every round and each player carries their own points. Charity/free
+    // only — money ball stays fixed-team.
+    const format = req.body.format === 'rotating' ? 'rotating' : 'fixed';
+    const winnerRule = ['ep', 'points', 'wins'].includes(req.body.winner_rule)
+      ? req.body.winner_rule
+      : 'ep';
+    const maxPlayers = req.body.max_players != null ? asInt(req.body.max_players) : 12;
+    if (format === 'rotating' && kind === 'money') {
+      return bad(res, 400, 'Rotating nights are free — money ball stays fixed-team.');
+    }
+    if (format === 'rotating' && (maxPlayers == null || maxPlayers < 2 || maxPlayers > 24)) {
+      return bad(res, 400, 'Max players must be between 2 and 24.');
+    }
     const payout = payoutById(req.body.payout).id;
     let startTime = '18:30';
     if (req.body.start_time != null) {
@@ -371,9 +541,9 @@ router.post('/admin/round-robin/events', auth.requireAdmin, (req, res) =>
     // members see the night as soon as it is created.
     const published = req.body.published != null ? Boolean(req.body.published) : true;
     const { rows } = await pool.query(
-      `INSERT INTO rr_events (name, event_date, kind, fee_cents, payout, start_time, max_teams, signup_close, published)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [name, req.body.event_date, kind, feeCents || 0, payout, startTime, maxTeams, signupClose, published]
+      `INSERT INTO rr_events (name, event_date, kind, fee_cents, payout, start_time, max_teams, signup_close, published, format, winner_rule, max_players)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+      [name, req.body.event_date, kind, feeCents || 0, payout, startTime, maxTeams, signupClose, published, format, winnerRule, maxPlayers]
     );
     res.json({ ok: true, event: rows[0] });
   }, req, res)
@@ -401,6 +571,20 @@ router.patch('/admin/round-robin/events/:id', auth.requireAdmin, (req, res) =>
     if (kind === 'money' && (feeCents == null || feeCents < 0 || feeCents > 100000)) {
       return bad(res, 400, 'Entry fee must be between $0 and $1,000 per person.');
     }
+    if (event.format === 'rotating' && kind === 'money') {
+      return bad(res, 400, 'Rotating nights are free — money ball stays fixed-team.');
+    }
+    const winnerRule =
+      req.body.winner_rule != null
+        ? ['ep', 'points', 'wins'].includes(req.body.winner_rule)
+          ? req.body.winner_rule
+          : null
+        : event.winner_rule || 'ep';
+    if (winnerRule == null) return bad(res, 400, 'Pick a valid winner rule.');
+    const maxPlayers = req.body.max_players != null ? asInt(req.body.max_players) : event.max_players || 12;
+    if (maxPlayers == null || maxPlayers < 2 || maxPlayers > 24) {
+      return bad(res, 400, 'Max players must be between 2 and 24.');
+    }
     const payout = req.body.payout != null ? payoutById(req.body.payout).id : event.payout;
     const published = req.body.published != null ? Boolean(req.body.published) : event.published;
     let startTime = event.start_time ? String(event.start_time).slice(0, 5) : '18:30';
@@ -417,9 +601,9 @@ router.patch('/admin/round-robin/events/:id', auth.requireAdmin, (req, res) =>
         ? req.body.signup_close
         : event.signup_close || 'day-3h';
     const { rows } = await pool.query(
-      `UPDATE rr_events SET name = $1, event_date = $2, kind = $3, fee_cents = $4, payout = $5, published = $6, start_time = $7, max_teams = $8, signup_close = $9
-       WHERE id = $10 RETURNING *`,
-      [name, req.body.event_date || event.event_date, kind, feeCents || 0, payout, published, startTime, maxTeams, signupClose, event.id]
+      `UPDATE rr_events SET name = $1, event_date = $2, kind = $3, fee_cents = $4, payout = $5, published = $6, start_time = $7, max_teams = $8, signup_close = $9, winner_rule = $10, max_players = $11
+       WHERE id = $12 RETURNING *`,
+      [name, req.body.event_date || event.event_date, kind, feeCents || 0, payout, published, startTime, maxTeams, signupClose, winnerRule, maxPlayers, event.id]
     );
     res.json({ ok: true, event: rows[0] });
   }, req, res)
@@ -476,6 +660,127 @@ router.delete('/admin/round-robin/events/:id/teams/:tid', auth.requireAdmin, (re
   }, req, res)
 );
 
+// ---- rotating nights: individual players + main/rotator setup ----
+// Rotating nights have players, not teams: the admin adds people by name
+// (optionally linked to a member record) and picks one main player whose
+// partner cycles through the rotators. All of it is setup-only.
+
+router.post('/admin/round-robin/events/:id/players', auth.requireAdmin, (req, res) =>
+  handle(async () => {
+    const event = await getEvent(asInt(req.params.id));
+    if (!event) return bad(res, 404, 'Round robin not found.');
+    if (event.format !== 'rotating') {
+      return bad(res, 400, 'This night uses fixed teams — add a team instead.');
+    }
+    if (event.status !== 'setup') {
+      return bad(res, 409, 'Players can only be added while the night is in setup.');
+    }
+    const players = await getRotPlayers(event.id);
+    const name = String(req.body.name || '').trim();
+    if (!name) return bad(res, 400, 'Enter the player’s name.');
+    if (name.length > 60) return bad(res, 400, 'Name is too long.');
+    const personId = req.body.personId != null ? asInt(req.body.personId) : null;
+    if (req.body.personId != null && personId == null) {
+      return bad(res, 400, 'Pick a valid person.');
+    }
+    if (personId != null) {
+      if (!(await getPerson(personId))) return bad(res, 404, 'Person not found.');
+      if (players.some((p) => p.person_id === personId)) {
+        return bad(res, 409, 'That person is already on this night.');
+      }
+    }
+    if (players.length >= nightMaxPlayers(event)) {
+      return bad(res, 400, `At most ${nightMaxPlayers(event)} players per night.`);
+    }
+    const { rows } = await pool.query(
+      'INSERT INTO rr_rot_players (event_id, name, person_id) VALUES ($1, $2, $3) RETURNING *',
+      [event.id, name, personId]
+    );
+    res.json({ ok: true, player: rows[0] });
+  }, req, res)
+);
+
+router.delete('/admin/round-robin/events/:id/players/:pid', auth.requireAdmin, (req, res) =>
+  handle(async () => {
+    const event = await getEvent(asInt(req.params.id));
+    if (!event) return bad(res, 404, 'Round robin not found.');
+    if (event.format !== 'rotating') {
+      return bad(res, 400, 'This night uses fixed teams.');
+    }
+    if (event.status !== 'setup') {
+      return bad(res, 409, 'Players can only be removed while the night is in setup.');
+    }
+    const { rowCount } = await pool.query(
+      'DELETE FROM rr_rot_players WHERE id = $1 AND event_id = $2',
+      [req.params.pid, event.id]
+    );
+    if (!rowCount) return bad(res, 404, 'Player not found.');
+    res.json({ ok: true });
+  }, req, res)
+);
+
+// Set the main player and the rotators who cycle through as the main's
+// partner. Either may be empty (no main = everyone rotates freely).
+// Replaces the whole config each time: the old main flag and rotator
+// order are cleared first, then the new ones are set.
+router.post('/admin/round-robin/events/:id/rotation', auth.requireAdmin, (req, res) =>
+  handle(async () => {
+    const event = await getEvent(asInt(req.params.id));
+    if (!event) return bad(res, 404, 'Round robin not found.');
+    if (event.format !== 'rotating') {
+      return bad(res, 400, 'This night uses fixed teams.');
+    }
+    if (event.status !== 'setup') {
+      return bad(res, 409, 'The rotation can only be set while the night is in setup.');
+    }
+    const mainPlayerId = req.body.mainPlayerId != null ? asInt(req.body.mainPlayerId) : null;
+    const rotatorIds = Array.isArray(req.body.rotatorPlayerIds)
+      ? req.body.rotatorPlayerIds.map(asInt)
+      : [];
+    if (req.body.mainPlayerId != null && mainPlayerId == null) {
+      return bad(res, 400, 'Pick a valid main player.');
+    }
+    if (rotatorIds.some((x) => x == null)) {
+      return bad(res, 400, 'Rotators must be players on this night.');
+    }
+    if (rotatorIds.length > MAX_ROTATORS) {
+      return bad(res, 400, `At most ${MAX_ROTATORS} players rotate with the main player.`);
+    }
+    const players = await getRotPlayers(event.id);
+    const ids = new Set(players.map((p) => p.id));
+    if (mainPlayerId != null && !ids.has(mainPlayerId)) {
+      return bad(res, 404, 'Main player is not on this night.');
+    }
+    if (rotatorIds.some((x) => !ids.has(x))) {
+      return bad(res, 404, 'A rotator is not on this night.');
+    }
+    if (new Set(rotatorIds).size !== rotatorIds.length) {
+      return bad(res, 400, 'Each rotator can only be picked once.');
+    }
+    if (mainPlayerId != null && rotatorIds.includes(mainPlayerId)) {
+      return bad(res, 400, 'The main player cannot also rotate with themself.');
+    }
+    await pool.query('BEGIN');
+    try {
+      await pool.query(
+        'UPDATE rr_rot_players SET is_main = FALSE, rotator_order = NULL WHERE event_id = $1',
+        [event.id]
+      );
+      if (mainPlayerId != null) {
+        await pool.query('UPDATE rr_rot_players SET is_main = TRUE WHERE id = $1', [mainPlayerId]);
+      }
+      for (let i = 0; i < rotatorIds.length; i++) {
+        await pool.query('UPDATE rr_rot_players SET rotator_order = $1 WHERE id = $2', [i + 1, rotatorIds[i]]);
+      }
+      await pool.query('COMMIT');
+    } catch (e) {
+      await pool.query('ROLLBACK');
+      throw e;
+    }
+    res.json({ ok: true, mainPlayerId, rotatorPlayerIds: rotatorIds });
+  }, req, res)
+);
+
 // Pair two solo sign-ups into one team (Admin-only, setup only). The two
 // solo rows are removed and one team takes their place.
 router.post('/admin/round-robin/events/:id/pair', auth.requireAdmin, (req, res) =>
@@ -529,6 +834,40 @@ router.post('/admin/round-robin/events/:id/build', auth.requireAdmin, (req, res)
     if (event.status === 'completed') {
       return bad(res, 409, 'This night is finished.');
     }
+    if (event.format === 'rotating') {
+      // Rotating partners: the engine builds 5 rounds from the players in
+      // join order, with the main player's partner cycling the rotators.
+      const players = await getRotPlayers(event.id);
+      if (players.length < 4) {
+        return bad(res, 400, 'Add at least 4 players before building the night.');
+      }
+      const existing = await getRotMatches(event.id);
+      if (existing.some((m) => m.score1 != null)) {
+        return bad(res, 409, 'Scores have already been entered — the night can’t be rebuilt.');
+      }
+      const { main, rotators } = rotMainAndRotators(players);
+      const { matches: schedule, byes } = buildRotationSchedule(
+        players.map((p) => p.id),
+        { mainId: main ? main.id : null, rotatorIds: rotators.map((p) => p.id) }
+      );
+      await pool.query('BEGIN');
+      try {
+        await pool.query('DELETE FROM rr_rot_matches WHERE event_id = $1', [event.id]);
+        for (const s of schedule) {
+          await pool.query(
+            `INSERT INTO rr_rot_matches (event_id, round, court, p1_id, p2_id, p3_id, p4_id, target_score)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [event.id, s.round, s.court, s.p1Id, s.p2Id, s.p3Id, s.p4Id, s.target]
+          );
+        }
+        await pool.query("UPDATE rr_events SET status = 'playing' WHERE id = $1", [event.id]);
+        await pool.query('COMMIT');
+      } catch (e) {
+        await pool.query('ROLLBACK');
+        throw e;
+      }
+      return res.json({ ok: true, matches: schedule.length, rounds: ROT_ROUNDS, byes: byes.length });
+    }
     const teams = await getTeams(event.id);
     if (teams.length < 2) {
       return bad(res, 400, 'Add at least 2 teams before building the night.');
@@ -569,7 +908,7 @@ router.post('/admin/round-robin/events/:id/finish', auth.requireAdmin, (req, res
     if (event.status !== 'playing') {
       return bad(res, 409, 'Build the night before finishing it.');
     }
-    const matches = await getMatches(event.id);
+    const matches = event.format === 'rotating' ? await getRotMatches(event.id) : await getMatches(event.id);
     const unscored = matches.filter((m) => m.score1 == null).length;
     if (unscored > 0 && !req.body.force) {
       return bad(res, 409, `${unscored} game(s) are still unscored.`);

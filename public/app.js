@@ -475,7 +475,7 @@ async function renderLanding(id, mine) {
       ${openNights.length ? `<h2>Round Robin — sign-ups open</h2>
         ${openNights.map((e) => `<div class="card">
           <strong>${esc(e.name)}</strong><br>
-          <span class="muted small">${esc(rrWhen(e))} · ${rrKindLabel(e.kind)}${e.kind === 'money' ? ` · ${rrMoney(e.fee_cents)} per person` : ''} · ${e.team_count} of ${e.max_teams || 24} teams filled${e.solo_count ? ` · ${e.solo_count} waiting to be paired` : ''}</span>
+          <span class="muted small">${esc(rrWhen(e))} · ${e.format === 'rotating' ? 'Rotating partners · ' : ''}${rrKindLabel(e.kind)}${e.kind === 'money' ? ` · ${rrMoney(e.fee_cents)} per person` : ''} · ${rrFillLabel(e)}</span>
           <div class="btnrow"><a class="btn green small" href="#/roundrobin/${e.id}">Join this night</a></div>
         </div>`).join('')}` : ''}
       ${openBrackets.length ? `<h2>Bracket — sign-ups open</h2>
@@ -1999,7 +1999,22 @@ async function renderAdminBody(leagues, league, me) {
         <div id="rrc-fee-wrap"><label>Entry fee per person</label><input type="text" inputmode="decimal" id="rrc-fee" value="10" style="width:80px"><p class="fineprint">Pot grows with every player who joins.</p></div>
       </div>
       <div class="field-row">
-        <div><label>Max teams</label><select id="rrc-max">${Array.from({ length: 23 }, (_, i) => i + 2).map((n) => `<option value="${n}"${n === 6 ? ' selected' : ''}>${n} teams · ${Math.ceil(n / 2)} courts</option>`).join('')}</select><p class="fineprint">Signups close on their own when it fills.</p></div>
+        <div><label>Format</label>
+          <div class="level-pick" id="rrc-format">
+            <button type="button" data-format="fixed" class="picked">Fixed teams</button>
+            <button type="button" data-format="rotating">Rotating partners</button>
+          </div>
+          <p class="fineprint" id="rrc-format-note">Fixed teams stay together all night — every team plays every other team once.</p></div>
+        <div id="rrc-winner-wrap" hidden><label>Winner decided by</label>
+          <select id="rrc-winner">${ROT_WINNER_RULES.map((r) => `<option value="${r.id}">${esc(r.label)} — ${esc(r.desc)}</option>`).join('')}</select>
+          <p class="fineprint">Each player carries their own points — the winner is the top player, not the top team.</p></div>
+      </div>
+      <div class="field-row" id="rrc-rot-row" hidden>
+        <div><label>Max players</label><select id="rrc-max-players">${Array.from({ length: 23 }, (_, i) => i + 2).map((n) => `<option value="${n}"${n === 12 ? ' selected' : ''}>${n} players</option>`).join('')}</select><p class="fineprint">Partners rotate every round — 5 rounds, games to 11.</p></div>
+        <div><label>Main player + rotators</label><p class="fineprint">Pick them on the night page once players join — the main player rotates partners, the others take turns partnering the main.</p></div>
+      </div>
+      <div class="field-row">
+        <div id="rrc-max-teams-wrap"><label>Max teams</label><select id="rrc-max">${Array.from({ length: 23 }, (_, i) => i + 2).map((n) => `<option value="${n}"${n === 6 ? ' selected' : ''}>${n} teams · ${Math.ceil(n / 2)} courts</option>`).join('')}</select><p class="fineprint">Signups close on their own when it fills.</p></div>
         <div><label>Signups close</label><select id="rrc-close"><option value="day-3h">Day of play, 3:30 PM</option><option value="fill">When it fills</option></select><p class="fineprint">You can also close them early by hand.</p></div>
       </div>
       <p id="rrc-payout-wrap"><label>Payout</label><select id="rrc-payout">${RR_PAYOUTS.map((p) => `<option value="${p.id}">${esc(p.label)}</option>`).join('')}</select></p>
@@ -2150,6 +2165,7 @@ async function renderAdminBody(leagues, league, me) {
   const rrcCreateBtn = document.getElementById('rrc-create');
   if (rrcCreateBtn) {
     let rrcKind = 'money';
+    let rrcFormat = 'fixed';
     let rrcPublished = true;
     const rrcDate = document.getElementById('rrc-date');
     const rrcDateLabel = document.getElementById('rrc-date-label');
@@ -2158,6 +2174,10 @@ async function renderAdminBody(leagues, league, me) {
     const rrcFeeWrap = document.getElementById('rrc-fee-wrap');
     const rrcPayoutWrap = document.getElementById('rrc-payout-wrap');
     const rrcKindNote = document.getElementById('rrc-kind-note');
+    const rrcFormatNote = document.getElementById('rrc-format-note');
+    const rrcWinnerWrap = document.getElementById('rrc-winner-wrap');
+    const rrcRotRow = document.getElementById('rrc-rot-row');
+    const rrcMaxTeamsWrap = document.getElementById('rrc-max-teams-wrap');
     const rrcPublishBtn = document.getElementById('rrc-publish');
     const rrcPublishNote = document.getElementById('rrc-publish-note');
     const rrcSyncDate = () => {
@@ -2187,12 +2207,44 @@ async function renderAdminBody(leagues, league, me) {
     rrcSyncClose();
     document.querySelectorAll('#rrc-kind button').forEach((b) => {
       b.onclick = () => {
+        // Rotating nights are always free play — the server rejects
+        // kind=money on them, so don't let the picker get there.
+        if (rrcFormat === 'rotating') { toast('Rotating nights are always free play.'); return; }
         rrcKind = b.dataset.kind;
         document.querySelectorAll('#rrc-kind button').forEach((x) => x.classList.toggle('picked', x === b));
         const money = rrcKind === 'money';
         if (rrcFeeWrap) rrcFeeWrap.hidden = !money;
         if (rrcPayoutWrap) rrcPayoutWrap.hidden = !money;
         if (rrcKindNote) rrcKindNote.textContent = money ? 'Money Ball is the default $10 a person.' : 'Free play — no entry fee, no payouts. The Leaders card shows the top 3 teams instead.';
+      };
+    });
+    // Format switch: rotating shows the winner-rule and max-players
+    // pickers, hides the fixed-team cap, and forces free play.
+    const rrcSyncFormat = () => {
+      const rotating = rrcFormat === 'rotating';
+      if (rrcWinnerWrap) rrcWinnerWrap.hidden = !rotating;
+      if (rrcRotRow) rrcRotRow.hidden = !rotating;
+      if (rrcMaxTeamsWrap) rrcMaxTeamsWrap.hidden = rotating;
+      if (rrcFormatNote) rrcFormatNote.textContent = rotating ? 'Partners change every round — each player carries their own points, and the winner is the top player.' : 'Fixed teams stay together all night — every team plays every other team once.';
+      if (rotating) {
+        rrcKind = 'charity';
+        document.querySelectorAll('#rrc-kind button').forEach((x) => x.classList.toggle('picked', x.dataset.kind === 'charity'));
+        if (rrcFeeWrap) rrcFeeWrap.hidden = true;
+        if (rrcPayoutWrap) rrcPayoutWrap.hidden = true;
+        if (rrcKindNote) rrcKindNote.textContent = 'Rotating nights are always free play — no entry fee, no payouts.';
+      } else {
+        document.querySelectorAll('#rrc-kind button').forEach((x) => x.classList.toggle('picked', x.dataset.kind === rrcKind));
+        const money = rrcKind === 'money';
+        if (rrcFeeWrap) rrcFeeWrap.hidden = !money;
+        if (rrcPayoutWrap) rrcPayoutWrap.hidden = !money;
+        if (rrcKindNote) rrcKindNote.textContent = money ? 'Money Ball is the default $10 a person.' : 'Free play — no entry fee, no payouts. The Leaders card shows the top 3 teams instead.';
+      }
+    };
+    document.querySelectorAll('#rrc-format button').forEach((b) => {
+      b.onclick = () => {
+        rrcFormat = b.dataset.format;
+        document.querySelectorAll('#rrc-format button').forEach((x) => x.classList.toggle('picked', x === b));
+        rrcSyncFormat();
       };
     });
     if (rrcPublishBtn) rrcPublishBtn.onclick = () => { rrcPublished = !rrcPublished; rrcSyncPublish(); };
@@ -2210,7 +2262,12 @@ async function renderAdminBody(leagues, league, me) {
         max_teams: +document.getElementById('rrc-max').value || 6,
         signup_close: rrcClose.value,
         published: rrcPublished,
+        format: rrcFormat,
       };
+      if (rrcFormat === 'rotating') {
+        body.winner_rule = document.getElementById('rrc-winner').value;
+        body.max_players = +document.getElementById('rrc-max-players').value || 12;
+      }
       if (rrcKind === 'money') {
         const fee = parseFloat(document.getElementById('rrc-fee').value);
         if (Number.isNaN(fee) || fee < 0) { err.textContent = 'Entry fee must be $0 or more.'; return; }
@@ -3633,6 +3690,33 @@ const RR_PAYOUTS = [
   { id: 'top-four-40-30-20-10', label: 'Top-four — 40/30/20/10' },
 ];
 
+// Winner rules for rotating nights (migration 016): how the night ranks
+// players — E/P Diff% (default), most total points, or most game wins
+// first. Fixed-team nights always rank by E/P.
+const ROT_WINNER_RULES = [
+  { id: 'ep', label: 'E/P Diff%', desc: 'points earned over possible' },
+  { id: 'points', label: 'Most total points', desc: 'total points banked across the night' },
+  { id: 'wins', label: 'Most game wins first', desc: 'most games won, then E/P' },
+];
+function rotWinnerLabel(rule) {
+  const r = ROT_WINNER_RULES.find((x) => x.id === rule);
+  return r ? r.label : 'E/P Diff%';
+}
+// One line per player in a rotating night's standings, by the night's
+// winner rule: the rule's metric first, then the rest.
+function rotStandingLine(s, rule) {
+  const ep = s.ep == null ? '—' : `${(s.ep * 100).toFixed(1)}%`;
+  if (rule === 'points') return `${s.earned} pts · ${s.w}W–${s.l}L · E/P ${ep}`;
+  if (rule === 'wins') return `${s.w} wins · E/P ${ep} · ${s.earned} pts`;
+  return `${s.w}W–${s.l}L · E/P ${ep}`;
+}
+// "X of N players in" for a rotating night, "X of N teams filled" for a
+// fixed one — used by the landing card and the nights list.
+function rrFillLabel(e) {
+  if (e.format === 'rotating') return `${e.player_count || 0} of ${e.max_players || 12} players in`;
+  return `${e.team_count} of ${e.max_teams || 24} teams filled${e.solo_count ? ` · ${e.solo_count} waiting to be paired` : ''}`;
+}
+
 function rrMoney(cents) {
   const d = cents / 100;
   return '$' + (Number.isInteger(d) ? String(d) : d.toFixed(2));
@@ -3685,7 +3769,7 @@ async function renderRRList() {
           const joinOpen = ev.published && ev.status === 'setup' && !me.admin;
           return `<div class="card">
         <strong>${esc(ev.name)}</strong><br>
-        <span class="muted">${esc(rrWhen(ev))} · ${rrKindLabel(ev.kind)} · ${rrStatusLabel(ev.status)}${ev.published && ev.status === 'setup' ? ' · Sign-ups open' : ''} · ${ev.team_count} team(s)${ev.solo_count ? ` · ${ev.solo_count} waiting to be paired` : ''}${ev.kind === 'money' ? ` · ${rrMoney(ev.fee_cents)} per person` : ''}${ev.match_count ? ` · ${ev.scored_count}/${ev.match_count} scored` : ''}</span>
+        <span class="muted">${esc(rrWhen(ev))} · ${ev.format === 'rotating' ? 'Rotating partners · ' : ''}${rrKindLabel(ev.kind)} · ${rrStatusLabel(ev.status)}${ev.published && ev.status === 'setup' ? ' · Sign-ups open' : ''} · ${rrFillLabel(ev)}${ev.kind === 'money' ? ` · ${rrMoney(ev.fee_cents)} per person` : ''}${ev.match_count ? ` · ${ev.scored_count}/${ev.match_count} scored` : ''}</span>
         <div class="btnrow"><a class="btn ${joinOpen ? 'green ' : ''}small" href="#/roundrobin/${ev.id}">${joinOpen ? 'Join' : 'Open'}</a></div>
       </div>`;
         })
@@ -3703,6 +3787,9 @@ async function renderRREvent(id) {
     app.innerHTML = `<div class="banner warn">${esc(data.error || 'Not found.')}</div>`;
     return;
   }
+  // Rotating nights have their own page (players, not teams) — the fixed
+  // path below is untouched.
+  if (data.event.format === 'rotating') { renderRotEvent(id, data); return; }
   const { event, teams, solos = [], matches, standings, payouts, byes, isAdmin } = data;
   const byId = new Map(teams.map((t) => [t.id, t]));
   // Matches arrive ordered by round, court — number them 1..N for the night
@@ -4167,6 +4254,413 @@ function renderRRScoreView(id, m, byId, num) {
         toast('Score cleared.');
         rrScoreMatchId = null;
         renderRREvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+}
+
+// ---------- Rotating partners ----------
+// Same night shape as a fixed-team round robin, but players rotate
+// partners every round and each player carries their own points into a
+// personal bank. The winner is the top player by the night's winner rule,
+// not the top team. Free play only — no fee, no payouts.
+async function renderRotEvent(id, data) {
+  clearInterval(refreshTimer);
+  if (!data) {
+    data = await api(`/api/round-robin/events/${id}`).catch((e) => ({ error: e.message }));
+    if (data.error || !data.event) {
+      app.innerHTML = `<div class="banner warn">${esc(data.error || 'Not found.')}</div>`;
+      return;
+    }
+  }
+  const { event, players, matches, standings, byes, mainPlayerId, rotatorIds, isAdmin } = data;
+  const playersById = new Map(players.map((p) => [p.id, p]));
+  const numOf = new Map(matches.map((m, i) => [m.id, i + 1]));
+  const finished = event.status === 'completed';
+  const rule = event.winner_rule || 'ep';
+  if (rrScoreMatchId) {
+    const open = matches.find((m) => m.id === rrScoreMatchId);
+    if (open) { renderRotScoreView(id, open, playersById, numOf.get(open.id)); return; }
+    rrScoreMatchId = null;
+  }
+  const mainPlayer = mainPlayerId ? playersById.get(mainPlayerId) : null;
+  const rotators = (rotatorIds || []).map((rid) => playersById.get(rid)).filter(Boolean);
+  const placeLabel = (n) => ['1ST', '2ND', '3RD'][n - 1] || `${n}TH`;
+  let html = `<h1>${esc(event.name)}</h1>
+    <p class="muted">${esc(rrWhen(event))} · Free Charity · Rotating partners · Winner: ${esc(rotWinnerLabel(rule))} · ${rrStatusLabel(event.status)}</p>
+    ${event.status === 'setup' ? `<p class="muted">${esc(rrCloseLabel(event))}</p>` : ''}`;
+  if (finished) html += `<div class="banner finished">Night finished — final standings below.</div>`;
+  // Leaders while playing, Winners once finished — top 3 players who
+  // have played, by the night's winner rule.
+  if (standings.some((s) => s.played > 0)) {
+    html += `<div class="card"><strong>${finished ? 'Winners' : 'Leaders'}</strong>
+      ${standings.filter((s) => s.played > 0).slice(0, 3)
+        .map((s) => `<div class="rr-place">
+          <div class="rr-medal m${s.rank}">${s.rank}</div>
+          <div class="rr-place-info">
+            <div class="rr-place-label">${placeLabel(s.rank)} PLACE</div>
+            <div class="rr-place-team">${esc(s.name)}</div>
+            <div class="muted">${rotStandingLine(s, rule)}</div>
+          </div>
+        </div>`)
+        .join('')}
+    </div>`;
+  }
+  const meId = getIdentity() ? getIdentity().personId : null;
+  const myPlayer = meId ? players.find((p) => p.person_id === meId) : null;
+  const nightFull = players.length >= (event.max_players || 12);
+  if (event.status === 'setup' && event.published) {
+    html += `<div class="card" id="rr-join-box"><h3>Join this night</h3>`;
+    if (!meId) {
+      html += `<p class="muted">Sign-ups are open — tap your name to join.</p>
+        <div class="searchrow"><input type="text" id="rr-who-q" placeholder="Search your name…" autocomplete="off"></div>
+        <div id="rr-who-list"><p class="muted">Type your name above.</p></div>
+        <p class="muted">Not a member yet? <a href="#/members">Become a free MPA member</a> first.</p>`;
+    } else if (myPlayer) {
+      html += `<p>You're in — <strong>${esc(myPlayer.name)}</strong></p>
+        <div class="btnrow"><button class="btn secondary small" id="rr-leave">Leave this night</button></div>`;
+    } else {
+      html += `<p>Join as <strong>${esc(getIdentity().name)}</strong> — partners rotate every round, and your points are yours.</p>
+        <div class="btnrow"><button class="btn" id="rr-join" ${nightFull ? 'disabled' : ''}>Join this night</button></div>
+        ${nightFull ? `<p class="muted">This night is full (${event.max_players || 12} players).</p>` : ''}`;
+    }
+    html += `</div>`;
+  }
+  if (event.status === 'setup') {
+    const rotNames = rotators.map((p) => esc(p.name)).join(', ');
+    html += `<div class="card"><h3>Players — ${players.length}</h3>
+      ${players.map((p) => `<div>${esc(p.name)}${p.id === mainPlayerId ? ' <span class="br-seed">MAIN</span>' : ''}${(rotatorIds || []).includes(p.id) ? ` <span class="muted">rotates with ${esc(mainPlayer ? mainPlayer.name : 'the main')}</span>` : ''}${isAdmin ? ` <button class="btn secondary small" data-rm-player="${p.id}">Remove</button>` : ''}</div>`).join('') || '<p class="muted">No players yet.</p>'}
+      ${isAdmin ? `<p><input type="text" id="rr-p-name" placeholder="Player name" style="width:60%"></p>
+      <div class="btnrow"><button class="btn small" id="rr-add-player">Add player</button></div>` : '<p class="muted">Waiting for the organizer to add players and build the night.</p>'}
+    </div>`;
+    if (isAdmin) {
+      html += `<div class="card"><h3>Main player + rotators</h3>
+        <p class="muted">One main player — the others take turns partnering the main. Whoever isn't with the main that round partners with someone from the rest of the field. Nobody sits out because of the main/rotator setup.</p>
+        <label>Main player</label>
+        <div class="level-pick" id="rr-main-pick">${players.map((p) => `<button type="button" data-rot-main="${p.id}"${p.id === mainPlayerId ? ' class="picked"' : ''}>${esc(p.name)}</button>`).join('') || '<span class="muted">Add players first.</span>'}</div>
+        <label>Rotates with ${mainPlayer ? esc(mainPlayer.name) : 'the main'}</label>
+        <div class="level-pick" id="rr-rot-pick">${mainPlayer ? players.filter((p) => p.id !== mainPlayerId).map((p) => `<button type="button" data-rot-rot="${p.id}"${(rotatorIds || []).includes(p.id) ? ' class="picked"' : ''}>${esc(p.name)}</button>`).join('') : '<span class="muted">Pick a main player first.</span>'}</div>
+        <p class="muted">${mainPlayer ? `Main: <strong>${esc(mainPlayer.name)}</strong>${rotNames ? ` · Rotators: <strong>${rotNames}</strong>` : ' · No rotators yet — everyone rotates freely.'}` : 'No main player picked yet — everyone rotates freely.'}</p>
+      </div>`;
+      html += `<div class="card"><h3>Night settings</h3>
+        <p>Winner decided by <select id="rr-edit-winner">${ROT_WINNER_RULES.map((r) => `<option value="${r.id}"${r.id === rule ? ' selected' : ''}>${esc(r.label)} — ${esc(r.desc)}</option>`).join('')}</select></p>
+        <div class="btnrow"><button class="btn small" id="rr-save-settings">Save settings</button></div>
+        <p>Sign-ups: <strong>${event.published ? 'Open — members can join' : 'Closed — members cannot join'}</strong></p>
+        <div class="btnrow"><button class="btn secondary small" id="rr-publish">${event.published ? 'Unpublish' : 'Publish'}</button>${event.published ? '<button class="btn secondary small" id="rr-close-signups">Close signups</button>' : ''}</div>
+        <div class="btnrow"><button class="btn" id="rr-build" ${players.length < 4 ? 'disabled' : ''}>Build the night</button>
+        <button class="btn secondary small" id="rr-delete">Delete night</button></div>
+        <p class="muted">Building rotates partners every round — ${players.length} players make ${5 * Math.floor(players.length / 4)} games to 11 over 5 rounds.</p>
+      </div>`;
+    }
+  }
+  if (matches.length) {
+    const games = matches;
+    const done = games.filter((m) => m.score1 != null);
+    const sideLabel = (a, b) => `${esc(playersById.get(a)?.name || '')} & ${esc(playersById.get(b)?.name || '')}`;
+    const cardHtml = (m, isCurrentRound) => {
+      const scored = m.score1 != null;
+      const s1Win = scored && m.score1 > m.score2;
+      const s2Win = scored && m.score2 > m.score1;
+      const teamRow = (label, won, lost, score) =>
+        `<div class="teams${won ? ' rr-team-win' : lost ? ' rr-team-lose' : ''}">${label}${scored ? ` <span class="rr-score">${score}</span>` : ''}</div>`;
+      const canScore = !finished && !scored && isCurrentRound;
+      const canEdit = !finished && scored && isAdmin;
+      return `<div class="match-card">
+        <div class="teams">Match ${numOf.get(m.id)}</div>
+        <p class="muted">First to ${m.target_score}, win by 1</p>
+        <div class="muted">Court ${m.court} · Round ${m.round}</div>
+        ${teamRow(sideLabel(m.p1_id, m.p2_id), s1Win, s2Win, m.score1)}
+        <div class="vs">VS</div>
+        ${teamRow(sideLabel(m.p3_id, m.p4_id), s2Win, s1Win, m.score2)}
+        ${canScore ? `<button class="btn" data-rr-score="${m.id}">SCORE</button>` : ''}
+        ${canEdit ? `<button class="rr-edit" data-rr-score="${m.id}">Edit</button>` : ''}
+      </div>`;
+    };
+    const upcoming = games.filter((m) => m.score1 == null);
+    const rounds = [...new Set(games.map((m) => m.round))].sort((a, b) => a - b);
+    const currentRound = upcoming.length ? Math.min(...upcoming.map((m) => m.round)) : null;
+    const nextRound = currentRound == null ? null : Math.min(...rounds.filter((r) => r > currentRound), Infinity);
+    const roundStatus = (r) => {
+      if (r === currentRound) return ['playing', 'Now playing'];
+      if (games.filter((m) => m.round === r).every((m) => m.score1 != null)) return ['completed', 'Completed'];
+      return r === nextRound ? ['next', 'Up next'] : ['upcoming', 'Upcoming'];
+    };
+    html += `<h2>Matches</h2>`;
+    const orderedRounds = currentRound == null ? rounds : [currentRound, ...rounds.filter((r) => r !== currentRound)];
+    for (const r of orderedRounds) {
+      const [cls, label] = roundStatus(r);
+      const roundByes = (byes || []).filter((b) => b.round === r);
+      html += `<section class="rr-round"><h3>Round ${r} <span class="badge ${cls}">${label}</span></h3>${roundByes.length ? `<p class="muted">Sitting out: ${roundByes.map((b) => esc(playersById.get(b.playerId)?.name || '')).join(', ')}</p>` : ''}<div class="rr-matches">` + games.filter((m) => m.round === r).map((m) => cardHtml(m, r === currentRound)).join('') + `</div></section>`;
+    }
+    if (standings.length && standings.some((s) => s.played > 0)) {
+      html += `<div class="card"><h3>Standings</h3>
+        ${standings
+          .map(
+            (s) => `<div>${s.rank}. <strong>${esc(s.name)}</strong>${meId && playersById.get(s.playerId)?.person_id === meId ? ' <span class="you-badge">YOU</span>' : ''} — ${rotStandingLine(s, rule)}</div>`
+          )
+          .join('')}
+      </div>`;
+    }
+    if (isAdmin && event.status === 'playing') {
+      html += `<div class="btnrow"><button class="btn" id="rr-finish">Finish the night</button>${done.length === 0 ? '<button class="btn secondary" id="rr-rebuild">Rebuild the night</button>' : ''}<button class="btn secondary" id="rr-delete">Delete night</button></div>`;
+    }
+    if (isAdmin && finished) {
+      html += `<div class="btnrow"><button class="btn secondary" id="rr-reopen">Reopen the night</button><button class="btn secondary" id="rr-delete">Delete night</button></div>`;
+    }
+  }
+  app.innerHTML = html;
+
+  // ----- wiring -----
+  const finishBtn = document.getElementById('rr-finish');
+  if (finishBtn) {
+    finishBtn.onclick = async () => {
+      try {
+        await post(`/api/admin/round-robin/events/${id}/finish`, {});
+        toast('Night finished.');
+        renderRotEvent(id);
+      } catch (e) {
+        if (/unscored/.test(e.message) && confirm(`${e.message} Finish anyway?`)) {
+          try {
+            await post(`/api/admin/round-robin/events/${id}/finish`, { force: true });
+            toast('Night finished.');
+            renderRotEvent(id);
+          } catch (e2) { toast(e2.message); }
+        } else if (!/unscored/.test(e.message)) {
+          toast(e.message);
+        }
+      }
+    };
+  }
+  const rebuildBtn = document.getElementById('rr-rebuild');
+  if (rebuildBtn) {
+    rebuildBtn.onclick = async () => {
+      if (!confirm('Rebuild the night? The current schedule is replaced.')) return;
+      try {
+        await post(`/api/admin/round-robin/events/${id}/build`, {});
+        toast('Night rebuilt.');
+        renderRotEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const reopenBtn = document.getElementById('rr-reopen');
+  if (reopenBtn) {
+    reopenBtn.onclick = async () => {
+      try {
+        await post(`/api/admin/round-robin/events/${id}/reopen`, {});
+        toast('Night reopened.');
+        renderRotEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const deleteBtn = document.getElementById('rr-delete');
+  if (deleteBtn) {
+    deleteBtn.onclick = async () => {
+      if (!confirm('Delete this night? This cannot be undone.')) return;
+      try {
+        await fetch(`/api/admin/round-robin/events/${id}`, { method: 'DELETE' });
+        location.hash = '#/roundrobin';
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const buildBtn = document.getElementById('rr-build');
+  if (buildBtn) {
+    buildBtn.onclick = async () => {
+      try {
+        const r = await post(`/api/admin/round-robin/events/${id}/build`, {});
+        toast(`${r.matches} games built over ${r.rounds} rounds.`);
+        renderRotEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const publishBtn = document.getElementById('rr-publish');
+  if (publishBtn) {
+    publishBtn.onclick = async () => {
+      try {
+        await post(`/api/admin/round-robin/events/${id}`, { published: !event.published });
+        renderRotEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const closeBtn = document.getElementById('rr-close-signups');
+  if (closeBtn) {
+    closeBtn.onclick = async () => {
+      try {
+        await post(`/api/admin/round-robin/events/${id}`, { published: false });
+        renderRotEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const saveSettingsBtn = document.getElementById('rr-save-settings');
+  if (saveSettingsBtn) {
+    saveSettingsBtn.onclick = async () => {
+      try {
+        await post(`/api/admin/round-robin/events/${id}`, {
+          winner_rule: document.getElementById('rr-edit-winner').value,
+        });
+        toast('Settings saved.');
+        renderRotEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const addPlayerBtn = document.getElementById('rr-add-player');
+  if (addPlayerBtn) {
+    addPlayerBtn.onclick = async () => {
+      const name = document.getElementById('rr-p-name').value.trim();
+      if (!name) { toast('Enter the player’s name.'); return; }
+      try {
+        await post(`/api/admin/round-robin/events/${id}/players`, { name });
+        toast(`${name} added.`);
+        renderRotEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  app.querySelectorAll('[data-rm-player]').forEach((btn) => {
+    btn.onclick = async () => {
+      try {
+        await fetch(`/api/admin/round-robin/events/${id}/players/${btn.dataset.rmPlayer}`, { method: 'DELETE' });
+        renderRotEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  });
+  const saveRotation = async (nextMain, nextRotators) => {
+    try {
+      await post(`/api/admin/round-robin/events/${id}/rotation`, { mainPlayerId: nextMain, rotatorPlayerIds: nextRotators });
+      renderRotEvent(id);
+    } catch (e) { toast(e.message); }
+  };
+  app.querySelectorAll('button[data-rot-main]').forEach((b) => {
+    b.onclick = () => {
+      const picked = +b.dataset.rotMain;
+      // Tapping the current main clears the main player.
+      const nextMain = picked === mainPlayerId ? null : picked;
+      const nextRotators = (rotatorIds || []).filter((x) => x !== nextMain);
+      saveRotation(nextMain, nextRotators);
+    };
+  });
+  app.querySelectorAll('button[data-rot-rot]').forEach((b) => {
+    b.onclick = () => {
+      const picked = +b.dataset.rotRot;
+      let nextRotators = [...(rotatorIds || [])];
+      if (nextRotators.includes(picked)) nextRotators = nextRotators.filter((x) => x !== picked);
+      else {
+        if (nextRotators.length >= 5) { toast('At most 5 players rotate with the main player.'); return; }
+        nextRotators.push(picked);
+      }
+      saveRotation(mainPlayerId, nextRotators);
+    };
+  });
+  const joinBtn = document.getElementById('rr-join');
+  if (joinBtn) {
+    joinBtn.onclick = async () => {
+      if (!meId) return;
+      try {
+        const r = await post(`/api/round-robin/events/${id}/join`, { personId: meId });
+        toast(`You're in — ${r.player.name}.`);
+        renderRotEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const leaveBtn = document.getElementById('rr-leave');
+  if (leaveBtn) {
+    leaveBtn.onclick = async () => {
+      try {
+        await post(`/api/round-robin/events/${id}/leave`, {});
+        toast('You left the night.');
+        renderRotEvent(id);
+      } catch (e) { toast(e.message); }
+    };
+  }
+  const whoQ = document.getElementById('rr-who-q');
+  if (whoQ) {
+    let whoTimer = null;
+    whoQ.oninput = () => {
+      clearTimeout(whoTimer);
+      whoTimer = setTimeout(async () => {
+        const q = whoQ.value.trim();
+        const list = document.getElementById('rr-who-list');
+        if (!list) return;
+        if (q.length < 2) { list.innerHTML = '<p class="muted">Type your name above.</p>'; return; }
+        list.innerHTML = '<p class="muted">Searching…</p>';
+        const res = await api(`/api/members/search?q=${encodeURIComponent(q)}`).catch(() => ({ members: [] }));
+        const rows = res.members || [];
+        list.innerHTML = rows.length
+          ? rows.map((m) => `<div class="rr-person-row" data-person-id="${m.id}" data-person-name="${esc(m.name)}"><span>${esc(m.name)}</span><span class="muted">${m.self_rated ? 'Self-rated ' : ''}${m.dupr_rating ?? '—'}</span></div>`).join('')
+          : `<p class="muted">No member found for “${esc(q)}”.</p>`;
+        list.querySelectorAll('.rr-person-row').forEach((row) => {
+          row.onclick = async () => {
+            try {
+              const r = await post(`/api/round-robin/events/${id}/join`, { personId: +row.dataset.personId });
+              setIdentity(r.player.person_id, r.player.name);
+              toast(`You're in — ${r.player.name}.`);
+              renderRotEvent(id);
+            } catch (e) { toast(e.message); }
+          };
+        });
+      }, 250);
+    };
+  }
+  app.querySelectorAll('button[data-rr-score]').forEach((b) => {
+    b.onclick = () => {
+      rrScoreMatchId = +b.dataset.rrScore;
+      renderRotEvent(id, data);
+    };
+  });
+  refreshTimer = setInterval(() => {
+    if (document.getElementById('rr-join-box')) renderRotEvent(id);
+  }, 30000);
+}
+
+// Dedicated one-match score screen for a rotating night: stacked pairs,
+// plain score boxes, white card — same shape as the fixed-team screen.
+function renderRotScoreView(id, m, playersById, num) {
+  const s1 = `${esc(playersById.get(m.p1_id)?.name || '')} & ${esc(playersById.get(m.p2_id)?.name || '')}`;
+  const s2 = `${esc(playersById.get(m.p3_id)?.name || '')} & ${esc(playersById.get(m.p4_id)?.name || '')}`;
+  const scored = m.score1 != null;
+  app.innerHTML = `
+    <div class="match-card">
+      <h3>Match ${num} · Court ${m.court} · Round ${m.round}</h3>
+      <p class="muted">Games to ${m.target_score}</p>
+      <div class="teams">${s1}</div>
+      <div class="score-row">
+        <input type="text" inputmode="numeric" id="rr-s1" value="${scored ? m.score1 : ''}" placeholder="—" aria-label="Side 1 score">
+      </div>
+      <div class="vs" style="text-align:center">VS</div>
+      <div class="teams">${s2}</div>
+      <div class="score-row">
+        <input type="text" inputmode="numeric" id="rr-s2" value="${scored ? m.score2 : ''}" placeholder="—" aria-label="Side 2 score">
+      </div>
+      <div class="score-row">
+        <button class="btn" id="rr-svSave">Save score</button>
+        ${scored ? `<button class="btn secondary small" id="rr-svClear">Clear</button>` : ''}
+        <button class="btn secondary" id="rr-svBack">Back</button>
+      </div>
+    </div>`;
+  document.getElementById('rr-svBack').onclick = () => { rrScoreMatchId = null; renderRotEvent(id); };
+  document.getElementById('rr-svSave').onclick = async () => {
+    const s1v = document.getElementById('rr-s1').value.trim();
+    const s2v = document.getElementById('rr-s2').value.trim();
+    if (s1v === '' || s2v === '') { toast('Enter both scores.'); return; }
+    const n1 = +s1v;
+    const n2 = +s2v;
+    if (!Number.isInteger(n1) || !Number.isInteger(n2) || n1 < 0 || n2 < 0) { toast('Scores must be whole numbers.'); return; }
+    if (n1 === n2) { toast('No tie — one side wins.'); return; }
+    const win = Math.max(n1, n2);
+    if (win !== m.target_score) { toast(`The winner must reach ${m.target_score} exactly.`); return; }
+    try {
+      await post(`/api/round-robin/events/${id}/matches/${m.id}/score`, { score1: n1, score2: n2 });
+      toast('Score saved.');
+      rrScoreMatchId = null;
+      renderRotEvent(id);
+    } catch (e) { toast(e.message); }
+  };
+  const clearBtn = document.getElementById('rr-svClear');
+  if (clearBtn) {
+    clearBtn.onclick = async () => {
+      try {
+        await post(`/api/round-robin/events/${id}/matches/${m.id}/score`, { score1: null, score2: null });
+        toast('Score cleared.');
+        rrScoreMatchId = null;
+        renderRotEvent(id);
       } catch (e) { toast(e.message); }
     };
   }
