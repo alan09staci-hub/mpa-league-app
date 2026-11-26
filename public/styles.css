@@ -541,6 +541,7 @@ button.stat { cursor: pointer; font: inherit; }
 .fin-dark h1, .fin-dark h2, .fin-dark h3 { color: #f5f4ef; }
 .fin-dark .muted { color: #a8a8b1; }
 .fin-dark a { color: #ffd21f; }
+.fin-dark a.fin-view { color: #191400; }
 .fin-lede { font-size: 17px; font-weight: 700; }
 .fin-rule { color: #a8a8b1; font-size: 14px; }
 .fin-readonly { color: #7c7c86; font-size: 14px; font-style: italic; }
