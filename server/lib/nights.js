@@ -37,18 +37,20 @@ function toLibMatch(m) {
 }
 
 // The event ids this person is part of: a fixed-team member, a solo
-// waiting to be paired, or a rotating-night player. Hand-added teams
-// carry NULL person ids and never match.
+// waiting to be paired, or a rotating-night player. Teams Alan adds by
+// hand carry names only — person1_id/person2_id are NULL (migration
+// 007) — so those rows are matched by the person's name from the people
+// table too. Names are unique in the app (the member form guards
+// duplicates), so a name match is the same player.
 async function myNightIds(kind, personId) {
   if (personId == null) return new Set();
+  const { rows: prow } = await pool.query('SELECT name FROM people WHERE id = $1', [personId]);
+  const name = prow.length ? prow[0].name : null;
   const sql =
     kind === 'bracket'
-      ? `SELECT event_id FROM br_teams WHERE person1_id = $1 OR person2_id = $1
-         UNION SELECT event_id FROM br_solos WHERE person_id = $1`
-      : `SELECT event_id FROM rr_teams WHERE person1_id = $1 OR person2_id = $1
-         UNION SELECT event_id FROM rr_solos WHERE person_id = $1
-         UNION SELECT event_id FROM rr_rot_players WHERE person_id = $1`;
-  const { rows } = await pool.query(sql, [personId]);
+      ? `SELECT event_id FROM br_teams WHERE person1_id = $1 OR person2_id = $1 OR ($2::text IS NOT NULL AND (player1 = $2 OR player2 = $2)) UNION SELECT event_id FROM br_solos WHERE person_id = $1`
+      : `SELECT event_id FROM rr_teams WHERE person1_id = $1 OR person2_id = $1 OR ($2::text IS NOT NULL AND (player1 = $2 OR player2 = $2)) UNION SELECT event_id FROM rr_solos WHERE person_id = $1 UNION SELECT event_id FROM rr_rot_players WHERE person_id = $1`;
+  const { rows } = await pool.query(sql, [personId, name]);
   return new Set(rows.map((r) => r.event_id));
 }
 

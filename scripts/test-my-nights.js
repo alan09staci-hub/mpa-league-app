@@ -16,6 +16,10 @@ const authPath = require.resolve('../server/lib/auth');
 // In-memory state standing in for Postgres.
 const people = new Map();
 for (let i = 1; i <= 30; i++) people.set(i, { id: i, name: `Person ${i}` });
+// Real full names, for the hand-added-teams case below: those teams carry
+// names only (NULL person ids), so the match is by name.
+people.set(11, { id: 11, name: 'Alan Cortez' });
+people.set(12, { id: 12, name: 'Laura Byron' });
 let adminOn = false;
 
 const rrEvents = new Map();
@@ -104,6 +108,24 @@ rrEvents.set(4, {
   winner_rule: 'ep', max_players: 12, status: 'setup',
 });
 
+// Fixed round robin, playing, with HAND-ADDED teams: names only, NULL
+// person ids (the way Admin adds teams by hand, migration 007). Person
+// 11 is Alan Cortez by name — he must still see this night.
+rrEvents.set(5, {
+  id: 5, name: 'Hand-added RR', event_date: '2026-11-20', kind: 'money',
+  fee_cents: 1000, payout: 'house', start_time: '18:30', max_teams: 6,
+  signup_close: 'day-3h', published: true, format: 'fixed',
+  winner_rule: 'ep', max_players: 12, status: 'playing',
+});
+rrTeams.push(
+  { id: 3, event_id: 5, player1: 'Alan Cortez', player2: 'Laura Byron', person1_id: null, person2_id: null },
+  { id: 4, event_id: 5, player1: 'Kim Massa', player2: 'Justin Johnson', person1_id: null, person2_id: null }
+);
+rrMatches.push({
+  id: 2, event_id: 5, round: 1, court: 1, team1_id: 3, team2_id: 4,
+  score1: 11, score2: 7, target_score: 11,
+});
+
 const norm = (sql) => String(sql).replace(/\s+/g, ' ').trim();
 
 function checkPlaceholders(sql, params) {
@@ -128,16 +150,20 @@ const pool = {
       const e = brEvents.get(params[0]);
       return { rows: e ? [e] : [], rowCount: e ? 1 : 0 };
     }
-    if (sql === 'SELECT event_id FROM rr_teams WHERE person1_id = $1 OR person2_id = $1 UNION SELECT event_id FROM rr_solos WHERE person_id = $1 UNION SELECT event_id FROM rr_rot_players WHERE person_id = $1') {
+    if (sql === 'SELECT name FROM people WHERE id = $1') {
+      const p = people.get(params[0]);
+      return { rows: p ? [{ name: p.name }] : [] };
+    }
+    if (sql === 'SELECT event_id FROM rr_teams WHERE person1_id = $1 OR person2_id = $1 OR ($2::text IS NOT NULL AND (player1 = $2 OR player2 = $2)) UNION SELECT event_id FROM rr_solos WHERE person_id = $1 UNION SELECT event_id FROM rr_rot_players WHERE person_id = $1') {
       const ids = new Set();
-      rrTeams.filter((t) => t.person1_id === params[0] || t.person2_id === params[0]).forEach((t) => ids.add(t.event_id));
+      rrTeams.filter((t) => t.person1_id === params[0] || t.person2_id === params[0] || (params[1] != null && (t.player1 === params[1] || t.player2 === params[1]))).forEach((t) => ids.add(t.event_id));
       rrSolos.filter((s) => s.person_id === params[0]).forEach((s) => ids.add(s.event_id));
       rrRotPlayers.filter((p) => p.person_id === params[0]).forEach((p) => ids.add(p.event_id));
       return { rows: [...ids].map((event_id) => ({ event_id })) };
     }
-    if (sql === 'SELECT event_id FROM br_teams WHERE person1_id = $1 OR person2_id = $1 UNION SELECT event_id FROM br_solos WHERE person_id = $1') {
+    if (sql === 'SELECT event_id FROM br_teams WHERE person1_id = $1 OR person2_id = $1 OR ($2::text IS NOT NULL AND (player1 = $2 OR player2 = $2)) UNION SELECT event_id FROM br_solos WHERE person_id = $1') {
       const ids = new Set();
-      brTeams.filter((t) => t.person1_id === params[0] || t.person2_id === params[0]).forEach((t) => ids.add(t.event_id));
+      brTeams.filter((t) => t.person1_id === params[0] || t.person2_id === params[0] || (params[1] != null && (t.player1 === params[1] || t.player2 === params[1]))).forEach((t) => ids.add(t.event_id));
       brSolos.filter((s) => s.person_id === params[0]).forEach((s) => ids.add(s.event_id));
       return { rows: [...ids].map((event_id) => ({ event_id })) };
     }
@@ -267,6 +293,21 @@ async function main() {
   assert(r.json.nights[0].id === 2 && r.json.nights[0].kind === 'rr', 'person 5 night is Tuesday Rot');
   assert(r.json.nights[0].headline === 'Leading: Player 5', `rotating headline is the points leader, got ${r.json.nights[0].headline}`);
 
+  // 2b. Hand-added teams (names only, NULL person ids): person 11 is
+  // Alan Cortez by name, so he sees the night and can open it — this is
+  // the case the first build missed.
+  r = await req('GET', '/api/my-nights?personId=11');
+  assert(r.status === 200, `my-nights person 11 should be 200, got ${r.status}`);
+  assert(r.json.nights.length === 1, `person 11 should have 1 night, got ${JSON.stringify(r.json.nights)}`);
+  assert(r.json.nights[0].id === 5 && r.json.nights[0].kind === 'rr', 'person 11 night is Hand-added RR');
+  assert(r.json.nights[0].headline === 'Leading: Alan Cortez & Laura Byron', `hand-added headline is the leader, got ${r.json.nights[0].headline}`);
+  r = await req('GET', '/api/round-robin/events/5?viewer=11');
+  assert(r.status === 200, `hand-added participant detail should be 200, got ${r.status}: ${r.text}`);
+  r = await req('GET', '/api/round-robin/events/5?viewer=1');
+  assert(r.status === 403, `hand-added stranger detail should be 403, got ${r.status}`);
+  r = await req('GET', '/api/round-robin/events?viewer=11');
+  assert(JSON.stringify(r.json.events.map((e) => e.id)) === JSON.stringify([4, 5]), `viewer 11 RR list is setup + own night, got ${JSON.stringify(r.json.events.map((e) => e.id))}`);
+
   // 3. No person, or a person on no night: empty.
   r = await req('GET', '/api/my-nights');
   assert(r.status === 200 && r.json.nights.length === 0, 'my-nights without a person is empty');
@@ -308,10 +349,10 @@ async function main() {
   assert(r.status === 200, `RR list should be 200, got ${r.status}`);
   assert(JSON.stringify(r.json.events.map((e) => e.id)) === JSON.stringify([4, 1]), `viewer 1 RR list is setup + own night, got ${JSON.stringify(r.json.events.map((e) => e.id))}`);
   r = await req('GET', '/api/round-robin/events');
-  assert(JSON.stringify(r.json.events.map((e) => e.id)) === JSON.stringify([4, 1, 2]), `no-viewer RR list is everything, got ${JSON.stringify(r.json.events.map((e) => e.id))}`);
+  assert(JSON.stringify(r.json.events.map((e) => e.id)) === JSON.stringify([4, 1, 2, 5]), `no-viewer RR list is everything, got ${JSON.stringify(r.json.events.map((e) => e.id))}`);
   adminOn = true;
   r = await req('GET', '/api/round-robin/events?viewer=5');
-  assert(JSON.stringify(r.json.events.map((e) => e.id)) === JSON.stringify([4, 1, 2]), `admin RR list is everything, got ${JSON.stringify(r.json.events.map((e) => e.id))}`);
+  assert(JSON.stringify(r.json.events.map((e) => e.id)) === JSON.stringify([4, 1, 2, 5]), `admin RR list is everything, got ${JSON.stringify(r.json.events.map((e) => e.id))}`);
   adminOn = false;
   r = await req('GET', '/api/bracket/events?viewer=5');
   assert(r.json.events.length === 0, `viewer 5 bracket list hides the playing night, got ${JSON.stringify(r.json.events.map((e) => e.id))}`);

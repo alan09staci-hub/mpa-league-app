@@ -51,7 +51,11 @@ const pool = {
     // Night-participation lookup (server/lib/nights.js): which events this
     // person is on. This stub never creates fixed teams or solos, so only
     // the rotating players can match.
-    if (sql === 'SELECT event_id FROM rr_teams WHERE person1_id = $1 OR person2_id = $1 UNION SELECT event_id FROM rr_solos WHERE person_id = $1 UNION SELECT event_id FROM rr_rot_players WHERE person_id = $1') {
+    if (sql === 'SELECT name FROM people WHERE id = $1') {
+      const p = people.get(params[0]);
+      return { rows: p ? [{ name: p.name }] : [] };
+    }
+    if (sql === 'SELECT event_id FROM rr_teams WHERE person1_id = $1 OR person2_id = $1 OR ($2::text IS NOT NULL AND (player1 = $2 OR player2 = $2)) UNION SELECT event_id FROM rr_solos WHERE person_id = $1 UNION SELECT event_id FROM rr_rot_players WHERE person_id = $1') {
       const ids = [...new Set(rotPlayers.filter((p) => p.person_id === params[0]).map((p) => p.event_id))];
       return { rows: ids.map((event_id) => ({ event_id })) };
     }
