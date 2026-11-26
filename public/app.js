@@ -3694,6 +3694,100 @@ function rrPersonRowHtml(p) {
     <div class="fp">${p.dupr_id ? `DUPR ${esc(p.dupr_id)} · ${p.dupr_rating ?? ''}` : (p.self_rated ? `Self-rated ${p.dupr_rating ?? ''}` : 'No DUPR on file')}</div></span></div>`;
 }
 
+// Admin member picker for night teams/players: a searchable dropdown over
+// the member list (GET /api/members) — members only, never free text, so
+// every team/player is linked to a real member. One slot per pick; the
+// pick survives the 30s refresh because it lives in `memberPickSlots`,
+// scoped by event id like rrJoinPartner.
+const memberPickSlots = {};
+function memberPickSlot(id, eventId) {
+  const s = memberPickSlots[id];
+  if (!s || s.eventId !== eventId) memberPickSlots[id] = { eventId, pick: null };
+  return memberPickSlots[id];
+}
+function memberRatingLabel(m) {
+  if (m.self_rated) return `Self-rated ${m.dupr_rating ?? ''}`;
+  return m.dupr_rating != null ? `${m.dupr_rating}` : 'No rating';
+}
+// A slot counts as filled when a member is picked, or a guest name has
+// been typed in.
+function memberPickReady(pick) {
+  return !!pick && (!pick.guest || !!String(pick.name || '').trim());
+}
+// Request-body fields for one slot: person id for a member, guest name
+// for a guest.
+function memberPickBody(pick, idKey, guestKey) {
+  return pick.personId != null ? { [idKey]: pick.personId } : { [guestKey]: pick.name.trim() };
+}
+// Renders one picker slot into the <div id="slotId">: a search box listing
+// every member (filtered as you type), or the picked member with a Change
+// button. With `allowGuest`, the list also offers "Guest (not a member)…",
+// which reveals a name field instead — a guest has no identity in the
+// app, so they can't open the night or enter a score. `exclude(m)` drops
+// members who must not be offered — already on the night, or picked in
+// the other slot. `onChange` runs after each pick/clear (e.g. to enable
+// the Add button).
+function renderMemberPicker(slotId, members, exclude, onChange, allowGuest) {
+  const slot = memberPickSlots[slotId];
+  const box = document.getElementById(slotId);
+  if (!box || !slot) return;
+  if (slot.pick) {
+    if (slot.pick.guest) {
+      box.innerHTML = `<p><span class="muted">Guest (not a member)</span></p>
+        <div class="searchrow"><input type="text" id="${slotId}-guest" placeholder="Guest's name" autocomplete="off" value="${esc(slot.pick.name || '')}"></div>
+        <p><button class="btn secondary small" data-pick-members="${slotId}">Back to member list</button></p>`;
+      const g = document.getElementById(`${slotId}-guest`);
+      g.addEventListener('input', () => { slot.pick.name = g.value; if (onChange) onChange(); });
+      box.querySelector('[data-pick-members]').onclick = () => {
+        slot.pick = null;
+        renderMemberPicker(slotId, members, exclude, onChange, allowGuest);
+        if (onChange) onChange();
+      };
+      return;
+    }
+    box.innerHTML = `<p>Picked: <strong>${esc(slot.pick.name)}</strong> <span class="muted">${esc(memberRatingLabel(slot.pick))}</span> <button class="btn secondary small" data-pick-clear="${slotId}">Change</button></p>`;
+    box.querySelector('[data-pick-clear]').onclick = () => {
+      slot.pick = null;
+      renderMemberPicker(slotId, members, exclude, onChange, allowGuest);
+      if (onChange) onChange();
+    };
+    return;
+  }
+  box.innerHTML = `<div class="searchrow"><input type="text" id="${slotId}-q" placeholder="Search members…" autocomplete="off"></div><div id="${slotId}-list"></div>`;
+  const q = document.getElementById(`${slotId}-q`);
+  const list = document.getElementById(`${slotId}-list`);
+  const draw = () => {
+    const needle = q.value.trim().toLowerCase();
+    const rows = members.filter((m) => !exclude(m) && (!needle || m.name.toLowerCase().includes(needle)));
+    let html = rows.length
+      ? rows.map((m) => `<div class="person-row tappable" data-pid="${m.person_id}"><span class="who"><span class="nm">${esc(m.name)}</span><div class="fp">${esc(memberRatingLabel(m))}</div></span></div>`).join('')
+      : '<p class="muted">No member matches — check the spelling, or become a member first.</p>';
+    if (allowGuest) {
+      html += `<div class="person-row tappable" data-guest="1"><span class="who"><span class="nm">Guest (not a member)…</span><div class="fp">Type a name — guests can't open the night or enter scores</div></span></div>`;
+    }
+    list.innerHTML = html;
+    list.querySelectorAll('.person-row').forEach((row) => {
+      row.onclick = () => {
+        if (row.dataset.guest) {
+          slot.pick = { guest: true, name: '' };
+          renderMemberPicker(slotId, members, exclude, onChange, allowGuest);
+          if (onChange) onChange();
+          const g = document.getElementById(`${slotId}-guest`);
+          if (g) g.focus();
+          return;
+        }
+        const m = members.find((x) => x.person_id === +row.dataset.pid);
+        if (!m) return;
+        slot.pick = { personId: m.person_id, name: m.name, dupr_rating: m.dupr_rating, self_rated: m.self_rated };
+        renderMemberPicker(slotId, members, exclude, onChange, allowGuest);
+        if (onChange) onChange();
+      };
+    });
+  };
+  q.addEventListener('input', draw);
+  draw();
+}
+
 const RR_PAYOUTS = [
   { id: 'house', label: 'House rule — 3rd gets entry back, 1st & 2nd split the rest 60/40' },
   { id: 'winner-take-all', label: 'Winner-take-all — 100%' },
@@ -3811,6 +3905,10 @@ async function renderRREvent(id) {
   // path below is untouched.
   if (data.event.format === 'rotating') { renderRotEvent(id, data); return; }
   const { event, teams, solos = [], matches, standings, payouts, byes, isAdmin } = data;
+  // Member list for the Admin add-team picker (members only, never typed).
+  const members = (isAdmin && event.status === 'setup')
+    ? (await api('/api/members').catch(() => ({ members: [] }))).members || []
+    : [];
   const byId = new Map(teams.map((t) => [t.id, t]));
   // Matches arrive ordered by round, court — number them 1..N for the night
   // so every card has its own number (the old "Match ${round}" label put
@@ -3900,7 +3998,7 @@ async function renderRREvent(id) {
   if (event.status === 'setup') {
     html += `<div class="card"><h3>Teams — ${teams.length}</h3>
       ${teams.map((t) => `<div>${esc(t.label)}${isAdmin ? ` <button class="btn secondary small" data-rm-team="${t.id}">Remove</button>` : ''}</div>`).join('') || '<p class="muted">No teams yet.</p>'}
-      ${isAdmin ? `<p><input type="text" id="rr-p1" placeholder="Player 1" style="width:45%"> <input type="text" id="rr-p2" placeholder="Player 2" style="width:45%"></p>
+      ${isAdmin ? `<label>Player 1</label><div id="rr-p1"></div><label>Player 2</label><div id="rr-p2"></div>
       <div class="btnrow"><button class="btn small" id="rr-add-team">Add team</button></div>` : '<p class="muted">Waiting for the organizer to add teams and build the night.</p>'}
     </div>`;
     if (solos.length) {
@@ -4001,14 +4099,27 @@ async function renderRREvent(id) {
       } catch (e) { toast(e.message); }
     };
   });
+  // Admin add-team pickers: members already on the night — on a team (by
+  // person id, or by name on a legacy hand-added team) or signed up solo —
+  // are excluded, as is the pick in the other slot.
+  const rrTeamTaken = (m) =>
+    teams.some((t) => t.person1_id === m.person_id || t.person2_id === m.person_id
+      || [t.player1, t.player2].some((n) => n && n.toLowerCase() === m.name.toLowerCase()))
+    || solos.some((s) => s.person_id === m.person_id);
+  const rrP1 = memberPickSlot('rr-p1', id);
+  const rrP2 = memberPickSlot('rr-p2', id);
   const addBtn = document.getElementById('rr-add-team');
   if (addBtn) {
+    const rrSyncAdd = () => { addBtn.disabled = !(memberPickReady(rrP1.pick) && memberPickReady(rrP2.pick)); };
+    const rrDrawP1 = () => renderMemberPicker('rr-p1', members, (m) => rrTeamTaken(m) || (rrP2.pick && rrP2.pick.personId === m.person_id), () => { rrSyncAdd(); if (!rrP2.pick) rrDrawP2(); }, true);
+    const rrDrawP2 = () => renderMemberPicker('rr-p2', members, (m) => rrTeamTaken(m) || (rrP1.pick && rrP1.pick.personId === m.person_id), () => { rrSyncAdd(); if (!rrP1.pick) rrDrawP1(); }, true);
+    rrDrawP1(); rrDrawP2(); rrSyncAdd();
     addBtn.onclick = async () => {
-      const p1 = document.getElementById('rr-p1').value.trim();
-      const p2 = document.getElementById('rr-p2').value.trim();
-      if (!p1 || !p2) { toast('Enter both players’ names.'); return; }
+      if (!memberPickReady(rrP1.pick) || !memberPickReady(rrP2.pick)) { toast('Pick a member or add a guest for each player.'); return; }
+      if (rrP1.pick.personId != null && rrP1.pick.personId === rrP2.pick.personId) { toast('The two players on a team must be different people.'); return; }
       try {
-        await post(`/api/admin/round-robin/events/${id}/teams`, { player1: p1, player2: p2 });
+        await post(`/api/admin/round-robin/events/${id}/teams`, { ...memberPickBody(rrP1.pick, 'person1Id', 'guest1'), ...memberPickBody(rrP2.pick, 'person2Id', 'guest2') });
+        rrP1.pick = null; rrP2.pick = null;
         renderRREvent(id);
       } catch (e) { toast(e.message); }
     };
@@ -4294,6 +4405,10 @@ async function renderRotEvent(id, data) {
     }
   }
   const { event, players, matches, standings, byes, mainPlayerId, rotatorIds, isAdmin } = data;
+  // Member list for the Admin add-player picker (members only, never typed).
+  const members = (isAdmin && event.status === 'setup')
+    ? (await api('/api/members').catch(() => ({ members: [] }))).members || []
+    : [];
   const playersById = new Map(players.map((p) => [p.id, p]));
   const numOf = new Map(matches.map((m, i) => [m.id, i + 1]));
   const finished = event.status === 'completed';
@@ -4352,7 +4467,7 @@ async function renderRotEvent(id, data) {
     const rotNames = rotators.map((p) => esc(p.name)).join(', ');
     html += `<div class="card"><h3>Players — ${players.length}</h3>
       ${players.map((p) => `<div>${esc(p.name)}${p.id === mainPlayerId ? ' <span class="br-seed">MAIN</span>' : ''}${(rotatorIds || []).includes(p.id) ? ` <span class="muted">rotates with ${esc(mainPlayer ? mainPlayer.name : 'the main')}</span>` : ''}${isAdmin ? ` <button class="btn secondary small" data-rm-player="${p.id}">Remove</button>` : ''}</div>`).join('') || '<p class="muted">No players yet.</p>'}
-      ${isAdmin ? `<p><input type="text" id="rr-p-name" placeholder="Player name" style="width:60%"></p>
+      ${isAdmin ? `<label>Player</label><div id="rot-p"></div>
       <div class="btnrow"><button class="btn small" id="rr-add-player">Add player</button></div>` : '<p class="muted">Waiting for the organizer to add players and build the night.</p>'}
     </div>`;
     if (isAdmin) {
@@ -4524,14 +4639,22 @@ async function renderRotEvent(id, data) {
       } catch (e) { toast(e.message); }
     };
   }
+  // Admin add-player picker: members already on the night (by person id,
+  // or by name on a legacy hand-added player) are excluded.
+  const rotPick = memberPickSlot('rot-p', id);
   const addPlayerBtn = document.getElementById('rr-add-player');
   if (addPlayerBtn) {
+    const rotTaken = (m) => players.some((p) => p.person_id === m.person_id
+      || (p.name && p.name.toLowerCase() === m.name.toLowerCase()));
+    const rotSyncAdd = () => { addPlayerBtn.disabled = !memberPickReady(rotPick.pick); };
+    renderMemberPicker('rot-p', members, rotTaken, rotSyncAdd, true);
+    rotSyncAdd();
     addPlayerBtn.onclick = async () => {
-      const name = document.getElementById('rr-p-name').value.trim();
-      if (!name) { toast('Enter the player’s name.'); return; }
+      if (!memberPickReady(rotPick.pick)) { toast('Pick a member or add a guest.'); return; }
       try {
-        await post(`/api/admin/round-robin/events/${id}/players`, { name });
-        toast(`${name} added.`);
+        await post(`/api/admin/round-robin/events/${id}/players`, memberPickBody(rotPick.pick, 'personId', 'guest'));
+        toast(`${rotPick.pick.name.trim()} added.`);
+        rotPick.pick = null;
         renderRotEvent(id);
       } catch (e) { toast(e.message); }
     };
@@ -4800,6 +4923,10 @@ async function renderBrEvent(id) {
     return;
   }
   const { event, teams, solos = [], matches, podium, records, payouts, isAdmin } = data;
+  // Member list for the Admin add-team picker (members only, never typed).
+  const members = (isAdmin && event.status === 'setup')
+    ? (await api('/api/members').catch(() => ({ members: [] }))).members || []
+    : [];
   const byId = new Map(teams.map((t) => [t.id, t]));
   const recByTeam = new Map(records.map((r) => [r.teamId, r]));
   const matchesById = new Map(matches.map((m) => [m.id, m]));
@@ -4972,7 +5099,7 @@ async function renderBrEvent(id) {
   if (event.status === 'setup') {
     html += `<div class="card"><h3>Teams — ${teams.length}</h3>
       ${teams.map((t) => `<div>${esc(t.label)}${isAdmin ? ` <button class="btn secondary small" data-rm-team="${t.id}">Remove</button>` : ''}</div>`).join('') || '<p class="muted">No teams yet.</p>'}
-      ${isAdmin ? `<p><input type="text" id="br-p1" placeholder="Player 1" style="width:45%"> <input type="text" id="br-p2" placeholder="Player 2" style="width:45%"></p>
+      ${isAdmin ? `<label>Player 1</label><div id="br-p1"></div><label>Player 2</label><div id="br-p2"></div>
       <div class="btnrow"><button class="btn small" id="br-add-team">Add team</button></div>` : '<p class="muted">Waiting for the organizer to add teams and build the night.</p>'}
     </div>`;
     if (solos.length) {
@@ -5134,14 +5261,27 @@ async function renderBrEvent(id) {
       } catch (e) { toast(e.message); }
     };
   });
+  // Admin add-team pickers: same guards as round robin — members already
+  // on the night (by person id, or by name on a legacy hand-added team)
+  // are excluded, as is the pick in the other slot.
+  const brTeamTaken = (m) =>
+    teams.some((t) => t.person1_id === m.person_id || t.person2_id === m.person_id
+      || [t.player1, t.player2].some((n) => n && n.toLowerCase() === m.name.toLowerCase()))
+    || solos.some((s) => s.person_id === m.person_id);
+  const brP1 = memberPickSlot('br-p1', id);
+  const brP2 = memberPickSlot('br-p2', id);
   const addBtn = document.getElementById('br-add-team');
   if (addBtn) {
+    const brSyncAdd = () => { addBtn.disabled = !(memberPickReady(brP1.pick) && memberPickReady(brP2.pick)); };
+    const brDrawP1 = () => renderMemberPicker('br-p1', members, (m) => brTeamTaken(m) || (brP2.pick && brP2.pick.personId === m.person_id), () => { brSyncAdd(); if (!brP2.pick) brDrawP2(); }, true);
+    const brDrawP2 = () => renderMemberPicker('br-p2', members, (m) => brTeamTaken(m) || (brP1.pick && brP1.pick.personId === m.person_id), () => { brSyncAdd(); if (!brP1.pick) brDrawP1(); }, true);
+    brDrawP1(); brDrawP2(); brSyncAdd();
     addBtn.onclick = async () => {
-      const p1 = document.getElementById('br-p1').value.trim();
-      const p2 = document.getElementById('br-p2').value.trim();
-      if (!p1 || !p2) { toast('Enter both players’ names.'); return; }
+      if (!memberPickReady(brP1.pick) || !memberPickReady(brP2.pick)) { toast('Pick a member or add a guest for each player.'); return; }
+      if (brP1.pick.personId != null && brP1.pick.personId === brP2.pick.personId) { toast('The two players on a team must be different people.'); return; }
       try {
-        await post(`/api/admin/bracket/events/${id}/teams`, { player1: p1, player2: p2 });
+        await post(`/api/admin/bracket/events/${id}/teams`, { ...memberPickBody(brP1.pick, 'person1Id', 'guest1'), ...memberPickBody(brP2.pick, 'person2Id', 'guest2') });
+        brP1.pick = null; brP2.pick = null;
         renderBrEvent(id);
       } catch (e) { toast(e.message); }
     };

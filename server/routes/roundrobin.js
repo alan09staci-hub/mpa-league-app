@@ -25,7 +25,7 @@ const {
   buildRotationSchedule,
   computePlayerStandings,
 } = require('../lib/rotation');
-const { myNightIds, isNightParticipant } = require('../lib/nights');
+const { myNightIds, isNightParticipant, teamLabel, markTeamGuests, markPlayerGuest, memberNameSet } = require('../lib/nights');
 
 const router = express.Router();
 const MAX_TEAMS = 24; // 48 players per night — the absolute ceiling
@@ -127,19 +127,17 @@ async function getSolos(eventId) {
   return rows;
 }
 
-function teamLabel(t) {
-  return `${t.player1} & ${t.player2}`;
-}
-
 // Full event payload for a rotating night: players (not teams), the
 // rotation matches, per-player standings by the night's winner rule, and
 // the main player / rotators. Teams, solos and payouts stay empty — a
 // rotating night is individuals only, charity only.
 async function rotEventDetail(event, req) {
-  const [players, matches] = await Promise.all([
+  const [players, matches, memberNames] = await Promise.all([
     getRotPlayers(event.id),
     getRotMatches(event.id),
+    memberNameSet(),
   ]);
+  players.forEach((p) => { p.name = markPlayerGuest(p, memberNames); });
   const standings = computePlayerStandings(
     players.map((p) => ({ id: p.id, name: p.name })),
     matches,
@@ -194,11 +192,13 @@ async function rotEventDetail(event, req) {
 // Full event payload: event + teams + solos + matches + standings + payouts + byes.
 async function eventDetail(event, req) {
   if (event.format === 'rotating') return rotEventDetail(event, req);
-  const [teams, matches, solos] = await Promise.all([
+  const [teams, matches, solos, memberNames] = await Promise.all([
     getTeams(event.id),
     getMatches(event.id),
     getSolos(event.id),
+    memberNameSet(),
   ]);
+  teams.forEach((t) => markTeamGuests(t, memberNames));
   const standings = computeStandings(teams, matches);
   const payout = computePayouts({
     kind: event.kind,
@@ -364,6 +364,39 @@ router.post('/round-robin/events/:id/matches/:mid/score', (req, res) =>
 async function getPerson(id) {
   const { rows } = await pool.query('SELECT id, name FROM people WHERE id = $1', [id]);
   return rows[0] || null;
+}
+
+// True when the person is an MPA member (a members row exists). Only
+// members can be put on a night — a made-up name has no identity, so it
+// can neither open the night nor enter a score.
+async function isMember(id) {
+  const { rows } = await pool.query('SELECT 1 FROM members WHERE person_id = $1 LIMIT 1', [id]);
+  return rows.length > 0;
+}
+
+// True when the name is a member's full name (case-insensitive).
+async function isMemberName(name) {
+  const { rows } = await pool.query('SELECT 1 FROM members WHERE LOWER(name) = LOWER($1) LIMIT 1', [name]);
+  return rows.length > 0;
+}
+
+// One player slot from the Admin add form: either a member picked from
+// the list ({ personId }) or a guest typed by name ({ guest }). Returns
+// { personId, name } or { error: [status, message] }. A guest name that
+// is a member's full name is rejected — pick the member instead.
+async function resolveSlot(personIdRaw, guestRaw) {
+  const personId = asInt(personIdRaw);
+  if (personId != null) {
+    const person = await getPerson(personId);
+    if (!person) return { error: [404, 'Person not found.'] };
+    if (!(await isMember(personId))) return { error: [400, 'Players must be MPA members — join MPA first.'] };
+    return { personId, name: person.name };
+  }
+  const guest = String(guestRaw || '').trim();
+  if (!guest) return { error: [400, 'Pick a member or add a guest for each player.'] };
+  if (guest.length > 60) return { error: [400, 'Names are too long.'] };
+  if (await isMemberName(guest)) return { error: [400, 'That name belongs to a member — pick them from the list instead.'] };
+  return { personId: null, name: guest };
 }
 
 // True when the person is already on this night — on a team (by person id)
@@ -652,16 +685,29 @@ router.post('/admin/round-robin/events/:id/teams', auth.requireAdmin, (req, res)
     if (teams.length >= nightMaxTeams(event)) {
       return bad(res, 400, `At most ${nightMaxTeams(event)} teams (${nightMaxTeams(event) * 2} players) per night.`);
     }
-    const player1 = String(req.body.player1 || '').trim();
-    const player2 = String(req.body.player2 || '').trim();
-    if (!player1 || !player2) return bad(res, 400, 'Enter both players’ names.');
-    if (player1.length > 60 || player2.length > 60) return bad(res, 400, 'Names are too long.');
-    if (player1.toLowerCase() === player2.toLowerCase()) {
+    // Each slot is a member picked from the list or a guest typed by
+    // name. Member slots carry real person ids; guest slots store the
+    // typed name with a NULL person id.
+    const s1 = await resolveSlot(req.body.person1Id, req.body.guest1);
+    if (s1.error) return bad(res, s1.error[0], s1.error[1]);
+    const s2 = await resolveSlot(req.body.person2Id, req.body.guest2);
+    if (s2.error) return bad(res, s2.error[0], s2.error[1]);
+    if (s1.personId != null && s1.personId === s2.personId) {
       return bad(res, 400, 'The two players on a team must be different people.');
     }
+    // Already on this night — by person id, or by name on a legacy
+    // hand-added team whose person ids are NULL. Guests are names only,
+    // so they are never "already on" by this check.
+    const nameOnNight = (name) => teams.some((t) =>
+      [t.player1, t.player2].some((n) => n && n.toLowerCase() === name.toLowerCase()));
+    for (const s of [s1, s2]) {
+      if (s.personId != null && ((await personOnNight(event.id, s.personId)) || nameOnNight(s.name))) {
+        return bad(res, 409, 'One of these players is already on this night.');
+      }
+    }
     const { rows } = await pool.query(
-      'INSERT INTO rr_teams (event_id, player1, player2) VALUES ($1, $2, $3) RETURNING *',
-      [event.id, player1, player2]
+      'INSERT INTO rr_teams (event_id, player1, player2, person1_id, person2_id) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [event.id, s1.name, s2.name, s1.personId, s2.personId]
     );
     res.json({ ok: true, team: rows[0] });
   }, req, res)
@@ -699,25 +745,19 @@ router.post('/admin/round-robin/events/:id/players', auth.requireAdmin, (req, re
       return bad(res, 409, 'Players can only be added while the night is in setup.');
     }
     const players = await getRotPlayers(event.id);
-    const name = String(req.body.name || '').trim();
-    if (!name) return bad(res, 400, 'Enter the player’s name.');
-    if (name.length > 60) return bad(res, 400, 'Name is too long.');
-    const personId = req.body.personId != null ? asInt(req.body.personId) : null;
-    if (req.body.personId != null && personId == null) {
-      return bad(res, 400, 'Pick a valid person.');
-    }
-    if (personId != null) {
-      if (!(await getPerson(personId))) return bad(res, 404, 'Person not found.');
-      if (players.some((p) => p.person_id === personId)) {
-        return bad(res, 409, 'That person is already on this night.');
-      }
+    // A member picked from the list or a guest typed by name.
+    const s = await resolveSlot(req.body.personId, req.body.guest);
+    if (s.error) return bad(res, s.error[0], s.error[1]);
+    if (s.personId != null && players.some((p) => p.person_id === s.personId
+      || (p.name && p.name.toLowerCase() === s.name.toLowerCase()))) {
+      return bad(res, 409, 'That person is already on this night.');
     }
     if (players.length >= nightMaxPlayers(event)) {
       return bad(res, 400, `At most ${nightMaxPlayers(event)} players per night.`);
     }
     const { rows } = await pool.query(
       'INSERT INTO rr_rot_players (event_id, name, person_id) VALUES ($1, $2, $3) RETURNING *',
-      [event.id, name, personId]
+      [event.id, s.name, s.personId]
     );
     res.json({ ok: true, player: rows[0] });
   }, req, res)

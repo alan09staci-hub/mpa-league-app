@@ -55,6 +55,18 @@ const pool = {
       const p = people.get(params[0]);
       return { rows: p ? [{ name: p.name }] : [] };
     }
+    if (sql === 'SELECT 1 FROM members WHERE person_id = $1 LIMIT 1') {
+      // Every person in this stub is a member.
+      return { rows: people.has(params[0]) ? [{}] : [] };
+    }
+    if (sql === 'SELECT LOWER(name) AS name FROM members') {
+      // Every person in this stub is a member.
+      return { rows: [...people.values()].map((p) => ({ name: p.name.toLowerCase() })) };
+    }
+    if (sql === 'SELECT 1 FROM members WHERE LOWER(name) = LOWER($1) LIMIT 1') {
+      const hit = [...people.values()].some((p) => p.name.toLowerCase() === String(params[0]).toLowerCase());
+      return { rows: hit ? [{}] : [] };
+    }
     if (sql === 'SELECT event_id FROM rr_teams WHERE person1_id = $1 OR person2_id = $1 OR ($2::text IS NOT NULL AND (player1 = $2 OR player2 = $2)) UNION SELECT event_id FROM rr_solos WHERE person_id = $1 UNION SELECT event_id FROM rr_rot_players WHERE person_id = $1') {
       const ids = [...new Set(rotPlayers.filter((p) => p.person_id === params[0]).map((p) => p.event_id))];
       return { rows: ids.map((event_id) => ({ event_id })) };
@@ -244,20 +256,21 @@ async function main() {
   r = await req('POST', `/api/round-robin/events/${ev}/join-solo`, { personId: 1 });
   assert(r.status === 400, `join-solo on rotating should be 400, got ${r.status}`);
 
-  // 4. Admin adds 12 players (one linked to a person); 13th hits the cap;
-  //    a duplicate person is refused.
+  // 4. Admin adds 12 players by person id (picked from the member list —
+  // the name comes from the member record); 13th hits the cap; a duplicate
+  // person is refused; a name with no pick is refused.
   const pids = [];
   for (let i = 1; i <= 12; i++) {
-    r = await req('POST', `/api/admin/round-robin/events/${ev}/players`, {
-      name: `Player ${i}`, ...(i === 12 ? { personId: 5 } : {}),
-    });
+    r = await req('POST', `/api/admin/round-robin/events/${ev}/players`, { personId: i });
     assert(r.status === 200, `add player ${i} should be 200, got ${r.status}: ${r.text}`);
     pids.push(r.json.player.id);
   }
-  r = await req('POST', `/api/admin/round-robin/events/${ev}/players`, { name: 'Player 13' });
+  r = await req('POST', `/api/admin/round-robin/events/${ev}/players`, { personId: 13 });
   assert(r.status === 400, `13th player should hit the cap (400), got ${r.status}`);
-  r = await req('POST', `/api/admin/round-robin/events/${ev}/players`, { name: 'Dup', personId: 5 });
+  r = await req('POST', `/api/admin/round-robin/events/${ev}/players`, { personId: 5 });
   assert(r.status === 409, `duplicate person should be 409, got ${r.status}`);
+  r = await req('POST', `/api/admin/round-robin/events/${ev}/players`, { name: 'No Pick' });
+  assert(r.status === 400, `name with no pick should be 400, got ${r.status}`);
 
   // 5. Rotation config: main + rotators; guards on bad input.
   r = await req('POST', `/api/admin/round-robin/events/${ev}/rotation`, {
@@ -392,6 +405,26 @@ async function main() {
   assert(r.status === 409, `score after finish should be 409, got ${r.status}`);
   r = await req('POST', `/api/admin/round-robin/events/${ev}/finish`, {});
   assert(r.status === 409, `finish a finished night should be 409, got ${r.status}`);
+
+  // 14. Guests: a guest typed by name stores a NULL person id and shows
+  // as a guest; a guest name that is a member's full name is rejected.
+  r = await req('POST', '/api/admin/round-robin/events', {
+    name: 'Guest Test', event_date: '2026-12-08', kind: 'charity', format: 'rotating',
+    start_time: '18:30', max_teams: 6, signup_close: 'day-3h', published: true,
+  });
+  const ev4 = r.json.event.id;
+  r = await req('POST', `/api/admin/round-robin/events/${ev4}/players`, { guest: 'Sam Guest' });
+  assert(r.status === 200, `add guest player should be 200, got ${r.status}: ${r.text}`);
+  assert(r.json.player.person_id === null, `guest stores a NULL person id, got ${JSON.stringify(r.json.player)}`);
+  assert(r.json.player.name === 'Sam Guest', `guest name is kept, got ${JSON.stringify(r.json.player)}`);
+  r = await req('GET', `/api/round-robin/events/${ev4}`);
+  assert(r.status === 200, `guest night detail should be 200, got ${r.status}`);
+  assert(r.json.players.some((p) => p.name === 'Sam Guest (Guest)'), `guest shows as a guest in the players list, got ${JSON.stringify(r.json.players.map((p) => p.name))}`);
+  r = await req('POST', `/api/admin/round-robin/events/${ev4}/players`, { guest: 'Person 5' });
+  assert(r.status === 400, `guest name matching a member should be 400, got ${r.status}`);
+  r = await req('POST', `/api/admin/round-robin/events/${ev4}/players`, { personId: 5 });
+  assert(r.status === 200, `add member player should be 200, got ${r.status}: ${r.text}`);
+  assert(r.json.player.person_id === 5, `member player links the person, got ${JSON.stringify(r.json.player)}`);
 
   console.log(`\nAll rotating route tests passed (${passed} assertions).`);
 }

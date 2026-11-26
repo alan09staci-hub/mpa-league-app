@@ -34,7 +34,7 @@ const {
   computeBracketRecords,
   dependentMatchKeys,
 } = require('../lib/bracket');
-const { myNightIds, isNightParticipant } = require('../lib/nights');
+const { myNightIds, isNightParticipant, teamLabel, markTeamGuests, memberNameSet } = require('../lib/nights');
 
 const router = express.Router();
 
@@ -105,10 +105,6 @@ async function getSolos(eventId) {
   return rows;
 }
 
-function teamLabel(t) {
-  return `${t.player1} & ${t.player2}`;
-}
-
 // A stored br_matches row as a lib-style match (key = DB id, slot refs
 // already point at DB ids — the build inserts in creation order).
 function toLibMatch(m) {
@@ -128,11 +124,13 @@ function toLibMatch(m) {
 // Full event payload: event + teams + solos + matches (with slots resolved
 // to team ids) + podium + records + payouts.
 async function eventDetail(event, req) {
-  const [teams, matches, solos] = await Promise.all([
+  const [teams, matches, solos, memberNames] = await Promise.all([
     getTeams(event.id),
     getMatches(event.id),
     getSolos(event.id),
+    memberNameSet(),
   ]);
+  teams.forEach((t) => markTeamGuests(t, memberNames));
   const libMatches = matches.map(toLibMatch);
   const seedToTeamId = new Map(
     teams.filter((t) => t.seed != null).map((t) => [t.seed, t.id])
@@ -325,6 +323,39 @@ router.post('/bracket/events/:id/matches/:mid/score', (req, res) =>
 async function getPerson(id) {
   const { rows } = await pool.query('SELECT id, name FROM people WHERE id = $1', [id]);
   return rows[0] || null;
+}
+
+// True when the person is an MPA member (a members row exists). Only
+// members can be put on a night — a made-up name has no identity, so it
+// can neither open the night nor enter a score.
+async function isMember(id) {
+  const { rows } = await pool.query('SELECT 1 FROM members WHERE person_id = $1 LIMIT 1', [id]);
+  return rows.length > 0;
+}
+
+// True when the name is a member's full name (case-insensitive).
+async function isMemberName(name) {
+  const { rows } = await pool.query('SELECT 1 FROM members WHERE LOWER(name) = LOWER($1) LIMIT 1', [name]);
+  return rows.length > 0;
+}
+
+// One player slot from the Admin add form: either a member picked from
+// the list ({ personId }) or a guest typed by name ({ guest }). Returns
+// { personId, name } or { error: [status, message] }. A guest name that
+// is a member's full name is rejected — pick the member instead.
+async function resolveSlot(personIdRaw, guestRaw) {
+  const personId = asInt(personIdRaw);
+  if (personId != null) {
+    const person = await getPerson(personId);
+    if (!person) return { error: [404, 'Person not found.'] };
+    if (!(await isMember(personId))) return { error: [400, 'Players must be MPA members — join MPA first.'] };
+    return { personId, name: person.name };
+  }
+  const guest = String(guestRaw || '').trim();
+  if (!guest) return { error: [400, 'Pick a member or add a guest for each player.'] };
+  if (guest.length > 60) return { error: [400, 'Names are too long.'] };
+  if (await isMemberName(guest)) return { error: [400, 'That name belongs to a member — pick them from the list instead.'] };
+  return { personId: null, name: guest };
 }
 
 // True when the person is already on this night — on a team (by person id)
@@ -533,16 +564,29 @@ router.post('/admin/bracket/events/:id/teams', auth.requireAdmin, (req, res) =>
     if (teams.length >= nightMaxTeams(event)) {
       return bad(res, 400, `At most ${nightMaxTeams(event)} teams (${nightMaxTeams(event) * 2} players) per night.`);
     }
-    const player1 = String(req.body.player1 || '').trim();
-    const player2 = String(req.body.player2 || '').trim();
-    if (!player1 || !player2) return bad(res, 400, 'Enter both players’ names.');
-    if (player1.length > 60 || player2.length > 60) return bad(res, 400, 'Names are too long.');
-    if (player1.toLowerCase() === player2.toLowerCase()) {
+    // Each slot is a member picked from the list or a guest typed by
+    // name. Member slots carry real person ids; guest slots store the
+    // typed name with a NULL person id.
+    const s1 = await resolveSlot(req.body.person1Id, req.body.guest1);
+    if (s1.error) return bad(res, s1.error[0], s1.error[1]);
+    const s2 = await resolveSlot(req.body.person2Id, req.body.guest2);
+    if (s2.error) return bad(res, s2.error[0], s2.error[1]);
+    if (s1.personId != null && s1.personId === s2.personId) {
       return bad(res, 400, 'The two players on a team must be different people.');
     }
+    // Already on this night — by person id, or by name on a legacy
+    // hand-added team whose person ids are NULL. Guests are names only,
+    // so they are never "already on" by this check.
+    const nameOnNight = (name) => teams.some((t) =>
+      [t.player1, t.player2].some((n) => n && n.toLowerCase() === name.toLowerCase()));
+    for (const s of [s1, s2]) {
+      if (s.personId != null && ((await personOnNight(event.id, s.personId)) || nameOnNight(s.name))) {
+        return bad(res, 409, 'One of these players is already on this night.');
+      }
+    }
     const { rows } = await pool.query(
-      'INSERT INTO br_teams (event_id, player1, player2) VALUES ($1, $2, $3) RETURNING *',
-      [event.id, player1, player2]
+      'INSERT INTO br_teams (event_id, player1, player2, person1_id, person2_id) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [event.id, s1.name, s2.name, s1.personId, s2.personId]
     );
     res.json({ ok: true, team: rows[0] });
   }, req, res)

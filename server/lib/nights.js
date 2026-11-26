@@ -17,7 +17,31 @@ function asInt(v) {
 }
 
 function teamLabel(t) {
-  return `${t.player1} & ${t.player2}`;
+  const p1 = t.guest1 ? `${t.player1} (Guest)` : t.player1;
+  const p2 = t.guest2 ? `${t.player2} (Guest)` : t.player2;
+  return `${p1} & ${p2}`;
+}
+
+// Lowercase names of every MPA member — the set a hand-added or guest
+// name is checked against.
+async function memberNameSet() {
+  const { rows } = await pool.query('SELECT LOWER(name) AS name FROM members');
+  return new Set(rows.map((r) => r.name));
+}
+
+// A team player is a guest when the row carries no person id and the
+// name is not a member's name. Legacy hand-added member teams match by
+// name and are not guests.
+function markTeamGuests(t, memberNames) {
+  t.guest1 = t.person1_id == null && !memberNames.has(String(t.player1).toLowerCase());
+  t.guest2 = t.person2_id == null && !memberNames.has(String(t.player2).toLowerCase());
+  return t;
+}
+
+// Display name for a rotating-night player: guests get the marker.
+function markPlayerGuest(p, memberNames) {
+  return p.person_id == null && !memberNames.has(String(p.name).toLowerCase())
+    ? `${p.name} (Guest)` : p.name;
 }
 
 // A stored br_matches row as a lib-style match (mirrors the mapping in
@@ -63,14 +87,16 @@ async function isNightParticipant(kind, eventId, personId) {
 // leader while playing, the winner once finished — only once anyone has
 // played a game.
 async function rrFixedHeadline(event) {
-  const [teams, matches] = await Promise.all([
+  const [teams, matches, memberNames] = await Promise.all([
     pool
       .query('SELECT * FROM rr_teams WHERE event_id = $1 ORDER BY id', [event.id])
       .then((r) => r.rows),
     pool
       .query('SELECT * FROM rr_matches WHERE event_id = $1 ORDER BY round, court', [event.id])
       .then((r) => r.rows),
+    memberNameSet(),
   ]);
+  teams.forEach((t) => markTeamGuests(t, memberNames));
   const standings = computeStandings(teams, matches);
   const top = standings[0];
   if (!top || top.played === 0) return null;
@@ -81,16 +107,17 @@ async function rrFixedHeadline(event) {
 // Headline for one rotating-partners night: the top player by the
 // night's winner rule.
 async function rrRotHeadline(event) {
-  const [players, matches] = await Promise.all([
+  const [players, matches, memberNames] = await Promise.all([
     pool
       .query('SELECT * FROM rr_rot_players WHERE event_id = $1 ORDER BY id', [event.id])
       .then((r) => r.rows),
     pool
       .query('SELECT * FROM rr_rot_matches WHERE event_id = $1 ORDER BY round, court', [event.id])
       .then((r) => r.rows),
+    memberNameSet(),
   ]);
   const standings = computePlayerStandings(
-    players.map((p) => ({ id: p.id, name: p.name })),
+    players.map((p) => ({ id: p.id, name: markPlayerGuest(p, memberNames) })),
     matches,
     event.winner_rule || 'ep'
   );
@@ -103,14 +130,16 @@ async function rrRotHeadline(event) {
 
 // Headline for one bracket night: the champion, once decided.
 async function bracketHeadline(event) {
-  const [teams, matches] = await Promise.all([
+  const [teams, matches, memberNames] = await Promise.all([
     pool
       .query('SELECT * FROM br_teams WHERE event_id = $1 ORDER BY id', [event.id])
       .then((r) => r.rows),
     pool
       .query('SELECT * FROM br_matches WHERE event_id = $1 ORDER BY id', [event.id])
       .then((r) => r.rows),
+    memberNameSet(),
   ]);
+  teams.forEach((t) => markTeamGuests(t, memberNames));
   if (!matches.length) return null;
   const libMatches = matches.map(toLibMatch);
   const seedToTeamId = new Map(
@@ -173,4 +202,4 @@ async function myNights(personId) {
   return out;
 }
 
-module.exports = { asInt, myNightIds, isNightParticipant, myNights };
+module.exports = { asInt, myNightIds, isNightParticipant, myNights, teamLabel, memberNameSet, markTeamGuests, markPlayerGuest };

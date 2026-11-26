@@ -20,6 +20,9 @@ for (let i = 1; i <= 30; i++) people.set(i, { id: i, name: `Person ${i}` });
 // names only (NULL person ids), so the match is by name.
 people.set(11, { id: 11, name: 'Alan Cortez' });
 people.set(12, { id: 12, name: 'Laura Byron' });
+people.set(31, { id: 31, name: 'Not A Member' });
+// Person 31 exists as a person but is not an MPA member.
+const memberIds = new Set([...people.keys()].filter((id) => id !== 31));
 let adminOn = false;
 
 const rrEvents = new Map();
@@ -100,6 +103,13 @@ brMatches.push({
   score1: null, score2: null, target_score: 11,
 });
 
+// Setup bracket night, nobody on it yet — the Admin add-team path below.
+brEvents.set(6, {
+  id: 6, name: 'Next Bracket', event_date: '2026-12-05', kind: 'charity',
+  fee_cents: 0, payout: 'house', start_time: '18:30', max_teams: 4,
+  signup_close: 'day-3h', published: true, status: 'setup',
+});
+
 // Setup round robin, nobody on it yet — anyone may open it.
 rrEvents.set(4, {
   id: 4, name: 'Next RR', event_date: '2026-12-04', kind: 'charity',
@@ -153,6 +163,40 @@ const pool = {
     if (sql === 'SELECT name FROM people WHERE id = $1') {
       const p = people.get(params[0]);
       return { rows: p ? [{ name: p.name }] : [] };
+    }
+    if (sql === 'SELECT id, name FROM people WHERE id = $1') {
+      const p = people.get(params[0]);
+      return { rows: p ? [{ id: p.id, name: p.name }] : [] };
+    }
+    if (sql === 'SELECT 1 FROM members WHERE person_id = $1 LIMIT 1') {
+      return { rows: memberIds.has(params[0]) ? [{}] : [] };
+    }
+    if (sql === 'SELECT LOWER(name) AS name FROM members') {
+      return { rows: [...memberIds].map((id) => ({ name: people.get(id).name.toLowerCase() })) };
+    }
+    if (sql === 'SELECT 1 FROM members WHERE LOWER(name) = LOWER($1) LIMIT 1') {
+      const hit = [...memberIds].some((id) => people.get(id).name.toLowerCase() === String(params[0]).toLowerCase());
+      return { rows: hit ? [{}] : [] };
+    }
+    if (sql === 'SELECT 1 FROM rr_teams WHERE event_id = $1 AND (person1_id = $2 OR person2_id = $2) UNION ALL SELECT 1 FROM rr_solos WHERE event_id = $1 AND person_id = $2 LIMIT 1') {
+      const hit = rrTeams.some((t) => t.event_id === params[0] && (t.person1_id === params[1] || t.person2_id === params[1]))
+        || rrSolos.some((s) => s.event_id === params[0] && s.person_id === params[1]);
+      return { rows: hit ? [{}] : [] };
+    }
+    if (sql === 'SELECT 1 FROM br_teams WHERE event_id = $1 AND (person1_id = $2 OR person2_id = $2) UNION ALL SELECT 1 FROM br_solos WHERE event_id = $1 AND person_id = $2 LIMIT 1') {
+      const hit = brTeams.some((t) => t.event_id === params[0] && (t.person1_id === params[1] || t.person2_id === params[1]))
+        || brSolos.some((s) => s.event_id === params[0] && s.person_id === params[1]);
+      return { rows: hit ? [{}] : [] };
+    }
+    if (sql === 'INSERT INTO rr_teams (event_id, player1, player2, person1_id, person2_id) VALUES ($1, $2, $3, $4, $5) RETURNING *') {
+      const team = { id: Math.max(0, ...rrTeams.map((t) => t.id)) + 1, event_id: params[0], player1: params[1], player2: params[2], person1_id: params[3], person2_id: params[4] };
+      rrTeams.push(team);
+      return { rows: [team] };
+    }
+    if (sql === 'INSERT INTO br_teams (event_id, player1, player2, person1_id, person2_id) VALUES ($1, $2, $3, $4, $5) RETURNING *') {
+      const team = { id: Math.max(0, ...brTeams.map((t) => t.id)) + 1, event_id: params[0], player1: params[1], player2: params[2], person1_id: params[3], person2_id: params[4] };
+      brTeams.push(team);
+      return { rows: [team] };
     }
     if (sql === 'SELECT event_id FROM rr_teams WHERE person1_id = $1 OR person2_id = $1 OR ($2::text IS NOT NULL AND (player1 = $2 OR player2 = $2)) UNION SELECT event_id FROM rr_solos WHERE person_id = $1 UNION SELECT event_id FROM rr_rot_players WHERE person_id = $1') {
       const ids = new Set();
@@ -355,9 +399,58 @@ async function main() {
   assert(JSON.stringify(r.json.events.map((e) => e.id)) === JSON.stringify([4, 1, 2, 5]), `admin RR list is everything, got ${JSON.stringify(r.json.events.map((e) => e.id))}`);
   adminOn = false;
   r = await req('GET', '/api/bracket/events?viewer=5');
-  assert(r.json.events.length === 0, `viewer 5 bracket list hides the playing night, got ${JSON.stringify(r.json.events.map((e) => e.id))}`);
+  assert(JSON.stringify(r.json.events.map((e) => e.id)) === JSON.stringify([6]), `viewer 5 bracket list hides the playing night but shows the setup one, got ${JSON.stringify(r.json.events.map((e) => e.id))}`);
   r = await req('GET', '/api/bracket/events?viewer=1');
-  assert(JSON.stringify(r.json.events.map((e) => e.id)) === JSON.stringify([3]), `viewer 1 bracket list shows own night, got ${JSON.stringify(r.json.events.map((e) => e.id))}`);
+  assert(JSON.stringify(r.json.events.map((e) => e.id)) === JSON.stringify([6, 3]), `viewer 1 bracket list shows setup + own night, got ${JSON.stringify(r.json.events.map((e) => e.id))}`);
+
+  // 7. Admin add-team (the real path): teams are picked from the member
+  // list, so they carry real person ids — and the participation check
+  // matches them by id, not just by name.
+  r = await req('POST', '/api/admin/round-robin/events/4/teams', { person1Id: 11, person2Id: 12 });
+  assert(r.status === 200, `admin add team should be 200, got ${r.status}: ${r.text}`);
+  assert(r.json.team.person1_id === 11 && r.json.team.person2_id === 12, `admin-added team carries person ids, got ${JSON.stringify(r.json.team)}`);
+  assert(r.json.team.player1 === 'Alan Cortez' && r.json.team.player2 === 'Laura Byron', `admin-added team names come from the member records, got ${JSON.stringify(r.json.team)}`);
+  r = await req('GET', '/api/my-nights?personId=11');
+  assert(r.json.nights.length === 2, `person 11 should now have 2 nights, got ${JSON.stringify(r.json.nights)}`);
+  assert(r.json.nights[0].id === 4, 'newest night for person 11 is Next RR');
+  // Validation: missing picks, same person twice, unknown person,
+  // non-member, and a player already on the night.
+  r = await req('POST', '/api/admin/round-robin/events/4/teams', { person1Id: 11 });
+  assert(r.status === 400, `missing second pick should be 400, got ${r.status}`);
+  r = await req('POST', '/api/admin/round-robin/events/4/teams', { person1Id: 11, person2Id: 11 });
+  assert(r.status === 400, `same person twice should be 400, got ${r.status}`);
+  r = await req('POST', '/api/admin/round-robin/events/4/teams', { person1Id: 11, person2Id: 99 });
+  assert(r.status === 404, `unknown person should be 404, got ${r.status}`);
+  r = await req('POST', '/api/admin/round-robin/events/4/teams', { person1Id: 11, person2Id: 31 });
+  assert(r.status === 400, `non-member should be 400, got ${r.status}`);
+  r = await req('POST', '/api/admin/round-robin/events/4/teams', { person1Id: 11, person2Id: 13 });
+  assert(r.status === 409, `player already on the night should be 409, got ${r.status}`);
+  // Guests: one member + one guest stores the guest with a NULL person
+  // id, and the member partner still matches the participation check.
+  r = await req('POST', '/api/admin/round-robin/events/4/teams', { person1Id: 13, guest2: 'Sam Guest' });
+  assert(r.status === 200, `member + guest team should be 200, got ${r.status}: ${r.text}`);
+  assert(r.json.team.person1_id === 13 && r.json.team.person2_id === null, `guest slot stores a NULL person id, got ${JSON.stringify(r.json.team)}`);
+  assert(r.json.team.player2 === 'Sam Guest', `guest name is kept, got ${JSON.stringify(r.json.team)}`);
+  r = await req('GET', '/api/my-nights?personId=13');
+  assert(r.json.nights.length === 1 && r.json.nights[0].id === 4, `member partner of a guest team still matches by id, got ${JSON.stringify(r.json.nights)}`);
+  // The guest shows as a guest in the night's team list.
+  r = await req('GET', '/api/round-robin/events/4?viewer=13');
+  assert(r.status === 200, `detail should be 200, got ${r.status}`);
+  assert(r.json.teams.some((t) => t.label === 'Person 13 & Sam Guest (Guest)'), `guest team label carries the Guest marker, got ${JSON.stringify(r.json.teams.map((t) => t.label))}`);
+  // A guest name that is a member's full name is rejected.
+  r = await req('POST', '/api/admin/round-robin/events/4/teams', { person1Id: 14, guest2: 'Alan Cortez' });
+  assert(r.status === 400, `guest name matching a member should be 400, got ${r.status}`);
+  // Two guests on a team work too.
+  r = await req('POST', '/api/admin/round-robin/events/4/teams', { guest1: 'Guest One', guest2: 'Guest Two' });
+  assert(r.status === 200, `two-guest team should be 200, got ${r.status}: ${r.text}`);
+  assert(r.json.team.person1_id === null && r.json.team.person2_id === null, `two-guest team stores NULL person ids, got ${JSON.stringify(r.json.team)}`);
+  // Bracket: same path, same guarantees.
+  r = await req('POST', '/api/admin/bracket/events/6/teams', { person1Id: 11, person2Id: 12 });
+  assert(r.status === 200, `admin add bracket team should be 200, got ${r.status}: ${r.text}`);
+  assert(r.json.team.person1_id === 11 && r.json.team.person2_id === 12, `admin-added bracket team carries person ids, got ${JSON.stringify(r.json.team)}`);
+  r = await req('GET', '/api/my-nights?personId=11');
+  assert(r.json.nights.length === 3, `person 11 should now have 3 nights, got ${JSON.stringify(r.json.nights)}`);
+  assert(r.json.nights[0].id === 6 && r.json.nights[0].kind === 'bracket', 'newest night for person 11 is Next Bracket');
 
   console.log(`\nAll my-nights tests passed (${passed} assertions).`);
 }
