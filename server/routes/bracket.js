@@ -34,6 +34,7 @@ const {
   computeBracketRecords,
   dependentMatchKeys,
 } = require('../lib/bracket');
+const { myNightIds, isNightParticipant } = require('../lib/nights');
 
 const router = express.Router();
 
@@ -217,6 +218,16 @@ router.get('/bracket/events', (req, res) =>
               (SELECT COUNT(*) FROM br_matches m WHERE m.event_id = e.id AND m.score1 IS NOT NULL) AS scored_count
          FROM br_events e ORDER BY e.event_date DESC, e.id DESC`
     );
+    // A signed-in player only sees playing/finished nights they are part
+    // of (plus every setup night, so anyone can join). No viewer, or an
+    // admin token, sees the full list as before.
+    const viewer = asInt(req.query.viewer);
+    if (viewer != null && !(await auth.isAdmin(req))) {
+      const mine = await myNightIds('bracket', viewer);
+      return res.json({
+        events: rows.filter((e) => e.status === 'setup' || mine.has(e.id)),
+      });
+    }
     res.json({ events: rows });
   }, req, res)
 );
@@ -225,6 +236,17 @@ router.get('/bracket/events/:id', (req, res) =>
   handle(async () => {
     const event = await getEvent(asInt(req.params.id));
     if (!event) return bad(res, 404, 'Bracket night not found.');
+    // Once a night is running, only its players (and Admin) may open the
+    // play. Setup nights stay public so anyone can open the join box.
+    if (event.status !== 'setup') {
+      const viewer = asInt(req.query.viewer);
+      const isPart =
+        viewer != null &&
+        (await isNightParticipant('bracket', event.id, viewer));
+      if (!isPart && !(await auth.isAdmin(req))) {
+        return bad(res, 403, 'This night is only visible to its players.');
+      }
+    }
     res.json(await eventDetail(event, req));
   }, req, res)
 );

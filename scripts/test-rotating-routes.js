@@ -48,6 +48,13 @@ const pool = {
     if (sql === 'SELECT * FROM rr_rot_players WHERE event_id = $1 ORDER BY id') {
       return { rows: rotPlayers.filter((p) => p.event_id === params[0]).sort((a, b) => a.id - b.id) };
     }
+    // Night-participation lookup (server/lib/nights.js): which events this
+    // person is on. This stub never creates fixed teams or solos, so only
+    // the rotating players can match.
+    if (sql === 'SELECT event_id FROM rr_teams WHERE person1_id = $1 OR person2_id = $1 UNION SELECT event_id FROM rr_solos WHERE person_id = $1 UNION SELECT event_id FROM rr_rot_players WHERE person_id = $1') {
+      const ids = [...new Set(rotPlayers.filter((p) => p.person_id === params[0]).map((p) => p.event_id))];
+      return { rows: ids.map((event_id) => ({ event_id })) };
+    }
     if (sql === 'SELECT * FROM rr_rot_matches WHERE event_id = $1 ORDER BY round, court') {
       return {
         rows: rotMatches
@@ -291,7 +298,9 @@ async function main() {
   assert(r.status === 200, `build should be 200, got ${r.status}: ${r.text}`);
   assert(r.json.matches === 15, `build should insert 15 matches, got ${r.json.matches}`);
   assert(r.json.rounds === 5, `build should be 5 rounds, got ${r.json.rounds}`);
-  r = await req('GET', `/api/round-robin/events/${ev}`);
+  // Once built, the night is playing: only its players (or Admin) may
+  // open the play, so the detail fetch carries a participant viewer.
+  r = await req('GET', `/api/round-robin/events/${ev}?viewer=5`);
   assert(r.json.matches.length === 15, 'detail has 15 matches after build');
   assert(r.json.byes.length === 0, 'no byes with 12 players');
   for (let round = 1; round <= 5; round++) {
@@ -324,7 +333,7 @@ async function main() {
   assert(r.status === 200 && r.json.cleared === true, `clear should be 200 cleared, got ${r.status}: ${r.text}`);
   r = await req('POST', `/api/round-robin/events/${ev}/matches/${mid}/score`, { score1: 11, score2: 7 });
   assert(r.status === 200, `re-score 11-7 should be 200, got ${r.status}`);
-  r = await req('GET', `/api/round-robin/events/${ev}`);
+  r = await req('GET', `/api/round-robin/events/${ev}?viewer=5`);
   const winners = r.json.standings.filter((s) => s.w === 1);
   assert(winners.length === 2, 'two players have a win after one scored match');
   assert(winners.every((s) => s.earned === 11), 'winners banked 11 points each');

@@ -38,6 +38,12 @@ function clearIdentity() {
   localStorage.removeItem('mpa_identity');
   renderIdentity();
 }
+// Query string carrying the device's player identity to night endpoints,
+// so the server can tell whether this viewer is part of the night.
+function viewerQs() {
+  const id = getIdentity();
+  return id ? `?viewer=${id.personId}` : '';
+}
 function renderIdentity() {
   syncAdminLink();
   const slot = document.getElementById('identitySlot');
@@ -437,11 +443,12 @@ async function renderLanding(id, mine) {
   const first = id.name.split(' ')[0];
   app.innerHTML = `<h1>Your league</h1><p class="muted">Loading…</p>`;
   try {
-    const [{ leagues }, { members }, { events: rrEvents }, { events: brEvents }] = await Promise.all([
+    const [{ leagues }, { members }, { events: rrEvents }, { events: brEvents }, { nights: myNights }] = await Promise.all([
       api('/api/leagues'),
       api('/api/members').catch(() => ({ members: [] })),
       api('/api/round-robin/events').catch(() => ({ events: [] })),
       api('/api/bracket/events').catch(() => ({ events: [] })),
+      api(`/api/my-nights?personId=${id.personId}`).catch(() => ({ nights: [] })),
     ]);
     const mineIds = new Set(mine.map((l) => l.id));
     const mineFull = leagues.filter((l) => mineIds.has(l.id));
@@ -465,6 +472,12 @@ async function renderLanding(id, mine) {
       </div>
       <div id="myLeagueCards">${mineFull.map(leagueCardHtml).join('') || '<p class="muted">You are not in a league yet.</p>'}</div>
       ${pending.length ? pending.map((r) => `<div class="card"><strong>You're signed up for ${esc(r.name)}</strong><br><span class="muted small">The organizer will add you to the roster.</span></div>`).join('') : ''}
+      ${myNights.length ? `<h2>Your nights</h2>
+        ${myNights.map((n) => `<div class="card">
+          <strong>${esc(n.name)}</strong><br>
+          <span class="muted small">${esc(rrWhen(n))} · ${n.kind === 'bracket' ? 'Bracket · Double elimination' : n.format === 'rotating' ? 'Round Robin · Rotating partners' : 'Round Robin'} · ${rrStatusLabel(n.status)}${n.headline ? ` · ${esc(n.headline)}` : ''}</span>
+          <div class="btnrow"><a class="btn small" href="#/${n.kind === 'bracket' ? 'bracket' : 'roundrobin'}/${n.id}">Open</a></div>
+        </div>`).join('')}` : ''}
       ${newSeasons.length ? `<h2>A new season is open</h2>
         ${newSeasons.map((l) => `<div class="card new-season">
           <strong>${esc(l.name)}</strong><br>
@@ -3769,7 +3782,7 @@ async function renderRRList() {
     <p class="muted">One-off nights, separate from leagues. Fixed teams stay together all night — every team plays every other team once.</p>
     <div id="rrList"><p class="muted">Loading…</p></div>`;
   const me = await api('/api/admin/me').catch(() => ({ admin: false }));
-  const { events } = await api('/api/round-robin/events').catch(() => ({ events: [] }));
+  const { events } = await api(`/api/round-robin/events${viewerQs()}`).catch(() => ({ events: [] }));
   document.getElementById('rrList').innerHTML = events.length
     ? events
         .map((ev) => {
@@ -3789,7 +3802,7 @@ async function renderRREvent(id) {
   // setting a new one. No refresh while a score screen is open, so typed
   // scores are never wiped mid-entry.
   clearInterval(refreshTimer);
-  const data = await api(`/api/round-robin/events/${id}`).catch((e) => ({ error: e.message }));
+  const data = await api(`/api/round-robin/events/${id}${viewerQs()}`).catch((e) => ({ error: e.message }));
   if (data.error || !data.event) {
     app.innerHTML = `<div class="banner warn">${esc(data.error || 'Not found.')}</div>`;
     return;
@@ -4274,7 +4287,7 @@ function renderRRScoreView(id, m, byId, num) {
 async function renderRotEvent(id, data) {
   clearInterval(refreshTimer);
   if (!data) {
-    data = await api(`/api/round-robin/events/${id}`).catch((e) => ({ error: e.message }));
+    data = await api(`/api/round-robin/events/${id}${viewerQs()}`).catch((e) => ({ error: e.message }));
     if (data.error || !data.event) {
       app.innerHTML = `<div class="banner warn">${esc(data.error || 'Not found.')}</div>`;
       return;
@@ -4761,7 +4774,7 @@ async function renderBrList() {
     <p class="muted">One-off double-elimination bracket nights, separate from leagues. Fixed teams stay together all night — lose twice and you're out, and the winners-bracket champion meets the losers-bracket champion in the grand final.</p>
     <div id="brList"><p class="muted">Loading…</p></div>`;
   const me = await api('/api/admin/me').catch(() => ({ admin: false }));
-  const { events } = await api('/api/bracket/events').catch(() => ({ events: [] }));
+  const { events } = await api(`/api/bracket/events${viewerQs()}`).catch(() => ({ events: [] }));
   document.getElementById('brList').innerHTML = events.length
     ? events
         .map((ev) => {
@@ -4781,7 +4794,7 @@ async function renderBrEvent(id) {
   // timer before setting a new one. No refresh while a score screen is
   // open, so typed scores are never wiped mid-entry.
   clearInterval(refreshTimer);
-  const data = await api(`/api/bracket/events/${id}`).catch((e) => ({ error: e.message }));
+  const data = await api(`/api/bracket/events/${id}${viewerQs()}`).catch((e) => ({ error: e.message }));
   if (data.error || !data.event) {
     app.innerHTML = `<div class="banner warn">${esc(data.error || 'Not found.')}</div>`;
     return;

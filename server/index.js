@@ -9,6 +9,7 @@ const api = require('./routes/api');
 const peopleRoutes = require('./routes/people');
 const rrRoutes = require('./routes/roundrobin');
 const brRoutes = require('./routes/bracket');
+const nightsRoutes = require('./routes/nights');
 const auth = require('./lib/auth');
 
 const app = express();
@@ -20,6 +21,7 @@ app.use('/api', api);
 app.use('/api', peopleRoutes);
 app.use('/api', rrRoutes);
 app.use('/api', brRoutes);
+app.use('/api', nightsRoutes);
 
 // SPA fallback: anything that isn't an API route serves the app shell.
 app.get('*', (req, res) => {
