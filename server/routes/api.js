@@ -76,6 +76,7 @@ router.get('/leagues', (req, res) =>
          LEFT JOIN (SELECT league_id, COUNT(*) AS count FROM player_leagues GROUP BY league_id) pc
            ON pc.league_id = l.id
          LEFT JOIN league_settings ls ON ls.league_id = l.id
+        WHERE l.deleted_at IS NULL
         ORDER BY l.start_date ASC`
     );
     res.json({ leagues: rows.map(normalizeLeague) });

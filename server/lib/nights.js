@@ -85,7 +85,8 @@ async function isNightParticipant(kind, eventId, personId) {
 
 // Headline for one fixed-team round robin night the person is in: the
 // leader while playing, the winner once finished — only once anyone has
-// played a game.
+// played a game. Returns { headline, top }: the top 3 played teams, for
+// the archive list's mini-medals.
 async function rrFixedHeadline(event) {
   const [teams, matches, memberNames] = await Promise.all([
     pool
@@ -98,14 +99,18 @@ async function rrFixedHeadline(event) {
   ]);
   teams.forEach((t) => markTeamGuests(t, memberNames));
   const standings = computeStandings(teams, matches);
-  const top = standings[0];
-  if (!top || top.played === 0) return null;
-  const label = teamLabel(top.team);
-  return event.status === 'completed' ? `Winners: ${label}` : `Leading: ${label}`;
+  const played = standings.filter((s) => s.played > 0);
+  if (!played.length) return { headline: null, top: [] };
+  const label = teamLabel(played[0].team);
+  return {
+    headline: event.status === 'completed' ? `Winners: ${label}` : `Leading: ${label}`,
+    top: played.slice(0, 3).map((s) => teamLabel(s.team)),
+  };
 }
 
 // Headline for one rotating-partners night: the top player by the
-// night's winner rule.
+// night's winner rule. Returns { headline, top }: the top 3 played
+// players, for the archive list's mini-medals.
 async function rrRotHeadline(event) {
   const [players, matches, memberNames] = await Promise.all([
     pool
@@ -121,14 +126,19 @@ async function rrRotHeadline(event) {
     matches,
     event.winner_rule || 'ep'
   );
-  const top = standings[0];
-  if (!top || top.played === 0) return null;
-  return event.status === 'completed'
-    ? `Winners: ${top.player.name}`
-    : `Leading: ${top.player.name}`;
+  const played = standings.filter((s) => s.played > 0);
+  if (!played.length) return { headline: null, top: [] };
+  return {
+    headline: event.status === 'completed'
+      ? `Winners: ${played[0].player.name}`
+      : `Leading: ${played[0].player.name}`,
+    top: played.slice(0, 3).map((s) => s.player.name),
+  };
 }
 
-// Headline for one bracket night: the champion, once decided.
+// Headline for one bracket night: the champion, once decided. Returns
+// { headline, top }: the podium labels (champion, runner-up, third) for
+// the archive list's mini-medals.
 async function bracketHeadline(event) {
   const [teams, matches, memberNames] = await Promise.all([
     pool
@@ -140,16 +150,22 @@ async function bracketHeadline(event) {
     memberNameSet(),
   ]);
   teams.forEach((t) => markTeamGuests(t, memberNames));
-  if (!matches.length) return null;
+  if (!matches.length) return { headline: null, top: [] };
   const libMatches = matches.map(toLibMatch);
   const seedToTeamId = new Map(
     teams.filter((t) => t.seed != null).map((t) => [t.seed, t.id])
   );
   const resolved = resolveBracket(libMatches, seedToTeamId);
   const podium = computeBracketPlaces(libMatches, resolved);
-  if (podium.champion == null) return null;
-  const champ = teams.find((t) => t.id === podium.champion);
-  return champ ? `Champions: ${teamLabel(champ)}` : null;
+  if (podium.champion == null) return { headline: null, top: [] };
+  const labelOf = (id) => {
+    const t = teams.find((x) => x.id === id);
+    return t ? teamLabel(t) : null;
+  };
+  return {
+    headline: `Champions: ${labelOf(podium.champion)}`,
+    top: [podium.champion, podium.runnerUp, podium.third].map(labelOf).filter(Boolean),
+  };
 }
 
 // Every night this person is part of, newest first, with the fields the
@@ -162,7 +178,7 @@ async function myNights(personId) {
   ]);
   const out = [];
   for (const id of rrIds) {
-    const { rows } = await pool.query('SELECT * FROM rr_events WHERE id = $1', [id]);
+    const { rows } = await pool.query('SELECT * FROM rr_events WHERE id = $1 AND deleted_at IS NULL', [id]);
     if (!rows.length) continue;
     const event = rows[0];
     out.push({
@@ -173,14 +189,13 @@ async function myNights(personId) {
       start_time: event.start_time,
       status: event.status,
       format: event.format,
-      headline:
-        event.format === 'rotating'
-          ? await rrRotHeadline(event)
-          : await rrFixedHeadline(event),
+      headline: (event.format === 'rotating'
+        ? await rrRotHeadline(event)
+        : await rrFixedHeadline(event)).headline,
     });
   }
   for (const id of brIds) {
-    const { rows } = await pool.query('SELECT * FROM br_events WHERE id = $1', [id]);
+    const { rows } = await pool.query('SELECT * FROM br_events WHERE id = $1 AND deleted_at IS NULL', [id]);
     if (!rows.length) continue;
     const event = rows[0];
     out.push({
@@ -191,7 +206,7 @@ async function myNights(personId) {
       start_time: event.start_time,
       status: event.status,
       format: null,
-      headline: await bracketHeadline(event),
+      headline: (await bracketHeadline(event)).headline,
     });
   }
   out.sort((a, b) => {
@@ -202,4 +217,4 @@ async function myNights(personId) {
   return out;
 }
 
-module.exports = { asInt, myNightIds, isNightParticipant, myNights, teamLabel, memberNameSet, markTeamGuests, markPlayerGuest };
+module.exports = { asInt, myNightIds, isNightParticipant, myNights, teamLabel, memberNameSet, markTeamGuests, markPlayerGuest, rrFixedHeadline, rrRotHeadline, bracketHeadline };

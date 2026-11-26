@@ -105,7 +105,7 @@ async function leaguesOfPerson(client, personId) {
     `SELECT l.id, l.name, l.type, l.skill, l.format, l.day, l.time,
             l.season, l.logo_color, l.start_date, l.stop_date
        FROM player_leagues pl JOIN leagues l ON l.id = pl.league_id
-      WHERE pl.person_id = $1 ORDER BY l.start_date ASC`,
+      WHERE pl.person_id = $1 AND l.deleted_at IS NULL ORDER BY l.start_date ASC`,
     [personId]
   );
   return rows.map(normalizeLeague);
@@ -124,7 +124,7 @@ router.get('/members', (req, res) =>
               m.joined_at,
               COALESCE((SELECT json_agg(l.name)
                           FROM player_leagues pl JOIN leagues l ON l.id = pl.league_id
-                         WHERE pl.person_id = m.person_id), '[]'::json) AS leagues,
+                         WHERE pl.person_id = m.person_id AND l.deleted_at IS NULL), '[]'::json) AS leagues,
               EXISTS (SELECT 1 FROM player_leagues pl WHERE pl.person_id = m.person_id) AS is_player
          FROM members m ORDER BY m.name ASC`
     );
@@ -354,7 +354,7 @@ router.get('/people/:id/leagues', (req, res) =>
     const { rows: regs } = await pool.query(
       `SELECT r.league_id, l.name, r.status
          FROM registrations r JOIN leagues l ON l.id = r.league_id
-        WHERE r.person_id = $1 AND r.status IN ('pending','confirmed')`,
+        WHERE r.person_id = $1 AND r.status IN ('pending','confirmed') AND l.deleted_at IS NULL`,
       [personId]
     );
     res.json({ person: person[0], leagues, registrations: regs });
@@ -562,7 +562,7 @@ router.get('/admin/members', auth.requireAdmin, (req, res) =>
          EXISTS (SELECT 1 FROM ambassador_passcodes bp WHERE bp.person_id = m.person_id) AS has_ambassador_passcode,
          COALESCE((SELECT json_agg(l.name)
           FROM player_leagues pl JOIN leagues l ON l.id = pl.league_id
-         WHERE pl.person_id = m.person_id), '[]'::json) AS leagues
+         WHERE pl.person_id = m.person_id AND l.deleted_at IS NULL), '[]'::json) AS leagues
          FROM members m LEFT JOIN people p ON p.id = m.person_id ORDER BY m.name ASC`
     );
     res.json({ members: rows });
@@ -759,7 +759,7 @@ router.get('/admin/people/search', auth.requireAdmin, (req, res) =>
       `SELECT p.id AS person_id, p.name, p.dupr_id, p.dupr_rating, p.dupr_profile_url,
               COALESCE((SELECT json_agg(l.name)
                           FROM player_leagues pl JOIN leagues l ON l.id = pl.league_id
-                         WHERE pl.person_id = p.id), '[]'::json) AS leagues,
+                         WHERE pl.person_id = p.id AND l.deleted_at IS NULL), '[]'::json) AS leagues,
               EXISTS (SELECT 1 FROM player_leagues pl WHERE pl.person_id = p.id AND pl.league_id = $2) AS in_league
          FROM people p WHERE lower(p.name) LIKE $1 ORDER BY p.name ASC LIMIT 20`,
       [like, leagueId]
@@ -839,6 +839,7 @@ router.get('/admin/announce-all', auth.requireAdmin, (req, res) =>
          LEFT JOIN (SELECT league_id, COUNT(*) AS count FROM player_leagues GROUP BY league_id) pc
            ON pc.league_id = l.id
          LEFT JOIN league_settings ls ON ls.league_id = l.id
+        WHERE l.deleted_at IS NULL
         ORDER BY l.start_date ASC`
     );
     const { rows: members } = await pool.query(
@@ -947,9 +948,11 @@ router.patch('/admin/leagues/:id', auth.requireAdmin, (req, res) =>
   }, req, res)
 );
 
-// Delete a league and everything that belongs to it (Admin). Sessions,
-// matches, rank snapshots, roster spots, and registrations are removed by
-// ON DELETE CASCADE; people and free-member records are untouched.
+// Delete a league (Admin). Soft delete (migration 017): the league
+// leaves the players' view but its sessions, matches, roster spots, and
+// registrations stay in the database — the Admin-only Finished tab still
+// holds it, where it can be restored or deleted forever. People and
+// free-member records are untouched either way.
 router.delete('/admin/leagues/:id', auth.requireAdmin, (req, res) =>
   handle(async () => {
     const league = await getLeague(pool, req.params.id);
@@ -968,17 +971,7 @@ router.delete('/admin/leagues/:id', auth.requireAdmin, (req, res) =>
       [league.id]
     );
     counts.matches = m[0].n;
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query('DELETE FROM leagues WHERE id = $1', [league.id]);
-      await client.query('COMMIT');
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
+    await pool.query('UPDATE leagues SET deleted_at = now() WHERE id = $1', [league.id]);
     res.json({ ok: true, deleted: { id: league.id, name: league.name, ...counts } });
   }, req, res)
 );

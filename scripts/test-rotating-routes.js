@@ -45,6 +45,11 @@ const pool = {
       const e = events.get(params[0]);
       return { rows: e ? [e] : [], rowCount: e ? 1 : 0 };
     }
+    if (sql === 'SELECT * FROM rr_events WHERE id = $1 AND deleted_at IS NULL') {
+      const e = events.get(params[0]);
+      const ok = e && !e.deleted_at;
+      return { rows: ok ? [e] : [], rowCount: ok ? 1 : 0 };
+    }
     if (sql === 'SELECT * FROM rr_rot_players WHERE event_id = $1 ORDER BY id') {
       return { rows: rotPlayers.filter((p) => p.event_id === params[0]).sort((a, b) => a.id - b.id) };
     }
@@ -88,6 +93,7 @@ const pool = {
     }
     if (sql.startsWith('SELECT e.*, (SELECT COUNT(*) FROM rr_teams')) {
       const rows = [...events.values()]
+        .filter((e) => !e.deleted_at)
         .sort((a, b) => (a.event_date < b.event_date ? 1 : a.event_date > b.event_date ? -1 : b.id - a.id))
         .map((e) => ({
           ...e,
@@ -125,9 +131,12 @@ const pool = {
       if (e) e.status = 'completed';
       return { rows: [], rowCount: e ? 1 : 0 };
     }
-    if (sql === 'DELETE FROM rr_events WHERE id = $1') {
-      const ok = events.delete(params[0]);
-      return { rows: [], rowCount: ok ? 1 : 0 };
+    // Soft delete (migration 017): Delete sets deleted_at, it does not
+    // destroy the row — the Finished tab still holds it.
+    if (sql === 'UPDATE rr_events SET deleted_at = now() WHERE id = $1') {
+      const e = events.get(params[0]);
+      if (e) e.deleted_at = '2026-11-25T00:00:00.000Z';
+      return { rows: [], rowCount: e ? 1 : 0 };
     }
     if (sql === 'INSERT INTO rr_rot_players (event_id, name, person_id) VALUES ($1, $2, $3) RETURNING *') {
       const [event_id, name, person_id] = params;

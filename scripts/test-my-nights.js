@@ -156,9 +156,19 @@ const pool = {
       const e = rrEvents.get(params[0]);
       return { rows: e ? [e] : [], rowCount: e ? 1 : 0 };
     }
+    if (sql === 'SELECT * FROM rr_events WHERE id = $1 AND deleted_at IS NULL') {
+      const e = rrEvents.get(params[0]);
+      const ok = e && !e.deleted_at;
+      return { rows: ok ? [e] : [], rowCount: ok ? 1 : 0 };
+    }
     if (sql === 'SELECT * FROM br_events WHERE id = $1') {
       const e = brEvents.get(params[0]);
       return { rows: e ? [e] : [], rowCount: e ? 1 : 0 };
+    }
+    if (sql === 'SELECT * FROM br_events WHERE id = $1 AND deleted_at IS NULL') {
+      const e = brEvents.get(params[0]);
+      const ok = e && !e.deleted_at;
+      return { rows: ok ? [e] : [], rowCount: ok ? 1 : 0 };
     }
     if (sql === 'SELECT name FROM people WHERE id = $1') {
       const p = people.get(params[0]);
@@ -253,6 +263,7 @@ const pool = {
     }
     if (sql.startsWith('SELECT e.*, (SELECT COUNT(*) FROM rr_teams')) {
       const rows = [...rrEvents.values()]
+        .filter((e) => !e.deleted_at)
         .sort((a, b) => (a.event_date < b.event_date ? 1 : a.event_date > b.event_date ? -1 : b.id - a.id))
         .map((e) => ({
           ...e,
@@ -268,6 +279,7 @@ const pool = {
     }
     if (sql.startsWith('SELECT e.*, (SELECT COUNT(*) FROM br_teams')) {
       const rows = [...brEvents.values()]
+        .filter((e) => !e.deleted_at)
         .sort((a, b) => (a.event_date < b.event_date ? 1 : a.event_date > b.event_date ? -1 : b.id - a.id))
         .map((e) => ({
           ...e,

@@ -137,14 +137,17 @@ function renderIdentity() {
   };
 }
 
-// The Admin link in the header shows only while this device is signed in
-// as Admin — players never see it. The sign-in link lives in the footer
-// instead, so it is always findable without sitting in the header.
+// The Admin and Finished links in the header show only while this
+// device is signed in as Admin — players never see either. The sign-in
+// link lives in the footer instead, so it is always findable without
+// sitting in the header.
 async function syncAdminLink() {
   const link = document.getElementById('adminLink');
-  if (!link) return;
+  const fin = document.getElementById('finishedLink');
+  if (!link && !fin) return;
   const me = await api('/api/admin/me').catch(() => ({ admin: false }));
-  link.hidden = !me.admin;
+  if (link) link.hidden = !me.admin;
+  if (fin) fin.hidden = !me.admin;
 }
 
 // ---------- helpers ----------
@@ -384,6 +387,10 @@ function route() {
   const parts = h.split('/').filter(Boolean);
   if (parts[0] === 'admin') return renderAdmin();
   if (parts[0] === 'ambassadors') return renderAmbassadors();
+  if (parts[0] === 'finished' && parts[1] === 'rr' && parts[2]) return renderRREvent(+parts[2], { archived: true });
+  if (parts[0] === 'finished' && parts[1] === 'bracket' && parts[2]) return renderBrEvent(+parts[2], { archived: true });
+  if (parts[0] === 'finished' && parts[1] === 'league' && parts[2]) return renderArchivedLeague(+parts[2]);
+  if (parts[0] === 'finished') return renderFinished();
   if (parts[0] === 'members' && parts[1]) return renderMemberProfile(+parts[1]);
   if (parts[0] === 'members') return renderMembersPage();
   if (parts[0] === 'join') return renderJoinPage(parts[1] ? +parts[1] : null);
@@ -3951,24 +3958,180 @@ async function renderRRList() {
     : `<div class="card"><p>No round robin nights yet.</p></div>`;
 }
 
-async function renderRREvent(id) {
+// ---------- finished (archive) tab — Admin-only ----------
+// Finishing a night/league archives it here; Delete takes it off the
+// players' view but keeps it here. Restore clears deleted_at (the undo
+// for an accidental delete); Delete forever, inside the archive only,
+// destroys the rows. Dark page, in the preview's black-and-yellow
+// palette, scoped under .fin-dark so nothing else in the app changes
+// color.
+
+// MM/DD/YYYY, in local time — asLocalDate keeps the stored date from
+// shifting a day when the browser is behind UTC.
+function fmtDateMDY(iso) {
+  const d = asLocalDate(iso);
+  if (!d || Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+}
+
+// Back bar on every archived results view: back to the list, plus the
+// archive actions for this item (Restore on deleted items only).
+function finBackBar(kind, id, state) {
+  return `<div class="fin-bar">
+    <a class="fin-back" href="#/finished">← Back to Finished</a>
+    <span class="fin-bar-actions">
+      ${state === 'deleted' ? `<button class="btn small fin-restore" data-kind="${kind}" data-id="${id}">Restore</button>` : ''}
+      <button class="btn secondary small fin-delete-forever" data-kind="${kind}" data-id="${id}">Delete forever</button>
+    </span>
+  </div>`;
+}
+
+// Wires the back bar's Restore / Delete forever buttons. `after` runs
+// after a successful action (defaults to back to the list).
+function wireFinBar(after) {
+  const go = after || (() => { location.hash = '#/finished'; });
+  document.querySelectorAll('.fin-restore').forEach((b) => {
+    b.onclick = async () => {
+      b.disabled = true;
+      try {
+        await api(`/api/admin/archive/${b.dataset.kind}/${b.dataset.id}/restore`, { method: 'POST' });
+        toast('Restored — it is back in the players’ view.');
+        go();
+      } catch (e) {
+        toast(e.message || 'Could not restore.');
+        b.disabled = false;
+      }
+    };
+  });
+  document.querySelectorAll('.fin-delete-forever').forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm('Delete this forever? This cannot be undone.')) return;
+      b.disabled = true;
+      try {
+        await api(`/api/admin/archive/${b.dataset.kind}/${b.dataset.id}`, { method: 'DELETE' });
+        toast('Deleted forever.');
+        go();
+      } catch (e) {
+        toast(e.message || 'Could not delete.');
+        b.disabled = false;
+      }
+    };
+  });
+}
+
+async function renderFinished() {
+  const me = await api('/api/admin/me').catch(() => ({ admin: false }));
+  if (!me.admin) {
+    app.innerHTML = `<div class="fin-dark"><h1>Finished</h1><p>This page is for Admins only.</p></div>`;
+    return;
+  }
+  app.innerHTML = `<div class="fin-dark"><h1>Finished</h1>
+    <p class="fin-lede">Finished leagues and nights live here — and so do deleted ones, until you delete them forever.</p>
+    <p class="fin-rule">Finishing a night or a league archives it. Deleting one takes it off the players' view, but the archive still holds it — restore it here, or delete it forever.</p>
+    <div id="fin-list"><p class="muted">Loading…</p></div></div>`;
+  let data;
+  try {
+    data = await api('/api/admin/archive');
+  } catch (e) {
+    document.getElementById('fin-list').innerHTML = `<p>${esc(e.message || 'Could not load the archive.')}</p>`;
+    return;
+  }
+  const items = data.items || [];
+  if (!items.length) {
+    document.getElementById('fin-list').innerHTML = `<div class="fin-empty"><h2>Nothing finished yet</h2><p>When a league season or a night finishes — or when something is deleted — it will show up here.</p></div>`;
+    return;
+  }
+  const kindLabel = { league: 'League', rr: 'Round Robin', bracket: 'Bracket' };
+  const groups = [
+    ['league', 'Leagues'],
+    ['rr', 'Round Robin nights'],
+    ['bracket', 'Bracket nights'],
+  ];
+  const html = groups.map(([kind, title]) => {
+    const list = items.filter((i) => i.kind === kind);
+    if (!list.length) return '';
+    return `<section class="fin-section"><h2>${title} <span class="fin-count">${list.length}</span></h2><div class="fin-grid">` +
+      list.map((it) => {
+        const medals = (it.top || []).map((t, i) => `<div class="fin-medal-row"><span class="fin-medal fin-medal-${i}">${i + 1}</span><span>${esc(t)}</span></div>`).join('');
+        return `<article class="fin-card">
+          <div class="fin-card-top"><h3>${esc(it.name)}</h3><span class="fin-pill fin-pill-${it.state}">${it.state === 'deleted' ? 'Deleted' : 'Finished'}</span></div>
+          <p class="fin-meta">${fmtDateMDY(it.date)} · ${kindLabel[it.kind]}</p>
+          ${it.meta ? `<p class="fin-meta">${esc(it.meta)}</p>` : ''}
+          ${it.headline ? `<p class="fin-headline">${esc(it.headline)}</p>` : ''}
+          ${medals ? `<div class="fin-medals">${medals}</div>` : ''}
+          <a class="fin-view" href="#/finished/${it.kind}/${it.id}">View results</a>
+          <div class="fin-actions">
+            ${it.state === 'deleted' ? `<button class="btn small fin-restore" data-kind="${it.kind}" data-id="${it.id}">Restore</button>` : ''}
+            <button class="btn secondary small fin-delete-forever" data-kind="${it.kind}" data-id="${it.id}">Delete forever</button>
+          </div>
+        </article>`;
+      }).join('') + `</div></section>`;
+  }).join('');
+  document.getElementById('fin-list').innerHTML = html;
+  wireFinBar(() => renderFinished());
+}
+
+async function renderArchivedLeague(id) {
+  const me = await api('/api/admin/me').catch(() => ({ admin: false }));
+  if (!me.admin) {
+    app.innerHTML = `<div class="fin-dark"><h1>Finished</h1><p>This page is for Admins only.</p></div>`;
+    return;
+  }
+  app.innerHTML = `<div class="fin-dark"><p class="muted">Loading…</p></div>`;
+  let d;
+  try {
+    d = await api(`/api/admin/archive/league/${id}`);
+  } catch (e) {
+    app.innerHTML = `<div class="fin-dark">${finBackBar('league', id, 'finished')}<p>${esc(e.message || 'Could not load this league.')}</p></div>`;
+    wireFinBar();
+    return;
+  }
+  const l = d.league;
+  const champ = d.champion;
+  const rows = d.standings || [];
+  app.innerHTML = `<div class="fin-dark">${finBackBar('league', id, d.state)}
+    <h1>${esc(l.name)}</h1>
+    <p class="fin-meta">${fmtDateMDY(d.date)} · League · ${[l.type, l.season].filter(Boolean).join(' · ')}</p>
+    <p class="fin-readonly">Read-only — this league is in the archive.</p>
+    ${champ ? `<div class="fin-champ"><div class="fin-champ-label">🏆 Champion</div><div class="fin-champ-name">${esc(champ.name)}</div><div class="fin-champ-how">${champ.epDiff.toFixed(1)}% E/P Diff</div></div>` : ''}
+    <div class="card"><h2>Standings</h2>
+      ${rows.length ? `<table class="fin-table"><thead><tr><th>#</th><th>Player</th><th>E/P Diff</th><th>Score</th><th>W–L</th><th>Played</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr${r.rank === 1 ? ' class="fin-champ-row"' : ''}><td>${r.rank}</td><td>${esc(r.name)}</td><td>${r.epDiff.toFixed(1)}%</td><td>${r.earned}/${r.possible}</td><td>${r.wins}–${r.losses}</td><td>${r.played}</td></tr>`).join('')}
+      </tbody></table>` : '<p class="muted">No standings recorded.</p>'}
+    </div>
+    <div class="card"><h2>Game days</h2>
+      ${(d.sessions || []).map((s) => `<div class="fin-session"><span>Week ${s.session_number}</span><span>${fmtDateMDY(s.date)}</span><span class="badge ${s.status === 'completed' ? 'completed' : 'upcoming'}">${s.status === 'completed' ? 'Finished' : s.status === 'in_progress' ? 'In progress' : 'Upcoming'}</span></div>`).join('') || '<p class="muted">No game days.</p>'}
+    </div>
+  </div>`;
+  wireFinBar();
+}
+
+async function renderRREvent(id, opts = {}) {
+  const archived = !!opts.archived;
   // Same refresh discipline as game days: clear the old timer before
   // setting a new one. No refresh while a score screen is open, so typed
   // scores are never wiped mid-entry.
   clearInterval(refreshTimer);
-  const data = await api(`/api/round-robin/events/${id}${viewerQs()}`).catch((e) => ({ error: e.message }));
+  if (archived) rrScoreMatchId = null; // archived nights never open a score screen
+  const data = await api(archived
+    ? `/api/admin/archive/rr/${id}`
+    : `/api/round-robin/events/${id}${viewerQs()}`).catch((e) => ({ error: e.message }));
   if (data.error || !data.event) {
-    app.innerHTML = `<div class="banner warn">${esc(data.error || 'Not found.')}</div>`;
+    app.innerHTML = archived
+      ? `<div class="fin-dark">${finBackBar('rr', id, 'finished')}<p>${esc(data.error || 'Not found.')}</p></div>`
+      : `<div class="banner warn">${esc(data.error || 'Not found.')}</div>`;
+    if (archived) wireFinBar();
     return;
   }
   // Rotating nights have their own page (players, not teams) — the fixed
   // path below is untouched.
-  if (data.event.format === 'rotating') { renderRotEvent(id, data); return; }
+  if (data.event.format === 'rotating') { renderRotEvent(id, data, opts); return; }
   const { event, teams, solos = [], matches, standings, payouts, byes, isAdmin } = data;
   // "View as player": when an Admin flips the switch, the page renders
   // exactly as a player sees it — every admin-control gate below reads
-  // showAdmin, never isAdmin.
-  const showAdmin = isAdmin && !viewAsPlayer();
+  // showAdmin, never isAdmin. Archived nights are read-only, so no admin
+  // controls show at all.
+  const showAdmin = archived ? false : isAdmin && !viewAsPlayer();
   // Member list for the Admin add-team picker (members only, never typed).
   const members = (showAdmin && event.status === 'setup')
     ? (await api('/api/members').catch(() => ({ members: [] }))).members || []
@@ -3984,9 +4147,11 @@ async function renderRREvent(id) {
     if (open) { renderRRScoreView(id, open, byId, numOf.get(open.id)); return; }
     rrScoreMatchId = null;
   }
-  let html = `<h1>${esc(event.name)}</h1>
+  let html = `${archived ? finBackBar('rr', id, data.state || 'finished') : ''}
+    <h1>${esc(event.name)}</h1>
     <p class="muted">${esc(rrWhen(event))} · ${rrKindLabel(event.kind)} · ${rrStatusLabel(event.status)}</p>
-    ${isAdmin ? `<div class="btnrow"><button class="btn secondary small" id="rr-view-toggle">${viewAsPlayer() ? 'Viewing as: Player — switch to Organizer' : 'Viewing as: Organizer — switch to Player'}</button></div>` : ''}
+    ${archived ? `<p class="fin-readonly">Read-only — this night is in the archive.${data.state === 'deleted' ? ' It was deleted, so players can no longer see it.' : ''}</p>` : ''}
+    ${!archived && isAdmin ? `<div class="btnrow"><button class="btn secondary small" id="rr-view-toggle">${viewAsPlayer() ? 'Viewing as: Player — switch to Organizer' : 'Viewing as: Organizer — switch to Player'}</button></div>` : ''}
     ${event.status === 'setup' ? `<p class="muted">${esc(rrCloseLabel(event))}</p>` : ''}`;
   if (finished) html += `<div class="banner finished">Night finished — final standings and payouts below.</div>`;
   const placeLabel = (n) => ['1ST', '2ND', '3RD'][n - 1] || `${n}TH`;
@@ -4034,7 +4199,7 @@ async function renderRREvent(id) {
   const myTeam = meId ? teams.find((t) => t.person1_id === meId || t.person2_id === meId) : null;
   const mySolo = meId ? solos.find((s) => s.person_id === meId) : null;
   const nightFull = teams.length >= (event.max_teams || 24);
-  if (event.status === 'setup' && event.published) {
+  if (!archived && event.status === 'setup' && event.published) {
     // Join box — members join themselves. The organizer's add-by-hand form
     // stays below in the Teams card, and joining closes on its own once
     // the night is built (status playing).
@@ -4103,7 +4268,7 @@ async function renderRREvent(id) {
         `<div class="teams${won ? ' rr-team-win' : lost ? ' rr-team-lose' : ''}">${esc(label)}${scored ? ` <span class="rr-score">${score}</span>` : ''}</div>`;
       // SCORE button: only on an unplayed match in the round in play —
       // the preview shows no button on a match that already has a score.
-      const canScore = !finished && !scored && isCurrentRound;
+      const canScore = !archived && !finished && !scored && isCurrentRound;
       // Edit link: Admin-only, on a scored match while the night is still
       // playing — reopens the same score screen, so a mistyped score can
       // be fixed without the big SCORE button coming back.
@@ -4154,21 +4319,25 @@ async function renderRREvent(id) {
       html += `<div class="btnrow"><button class="btn secondary" id="rr-reopen">Reopen the night</button><button class="btn secondary" id="rr-delete">Delete night</button></div>`;
     }
   }
+  // Archived nights render inside the dark Finished shell; the live
+  // night page keeps the app's normal light theme.
+  if (archived) html = `<div class="fin-dark">${html}</div>`;
   app.innerHTML = html;
   paintFlags();
   // "View as player" switch: flips the per-device flag and re-renders.
+  // Archived nights have no toggle — they are read-only for everyone.
   const viewToggle = document.getElementById('rr-view-toggle');
   if (viewToggle) {
-    viewToggle.onclick = () => { setViewAsPlayer(!viewAsPlayer()); renderRREvent(id); };
+    viewToggle.onclick = () => { setViewAsPlayer(!viewAsPlayer()); renderRREvent(id, opts); };
   }
   // Pause the wave: toggles body.paused and re-renders so the button
   // label follows the state.
   const flagPause = document.getElementById('flag-pause');
   if (flagPause) {
-    flagPause.onclick = () => { document.body.classList.toggle('paused'); renderRREvent(id); };
+    flagPause.onclick = () => { document.body.classList.toggle('paused'); renderRREvent(id, opts); };
   }
   app.querySelectorAll('button[data-rr-score]').forEach((b) => {
-    b.onclick = () => { rrScoreMatchId = +b.dataset.rrScore; renderRREvent(id); };
+    b.onclick = () => { rrScoreMatchId = +b.dataset.rrScore; renderRREvent(id, opts); };
   });
   app.querySelectorAll('button[data-rm-team]').forEach((b) => {
     b.onclick = async () => {
@@ -4408,7 +4577,7 @@ async function renderRREvent(id) {
       // join box, skip this refresh cycle.
       const ae = document.activeElement;
       if (ae && ae.closest && ae.closest('#rr-join-box')) return;
-      renderRREvent(id);
+      renderRREvent(id, opts);
     }, 30000);
   }
 }
@@ -4474,12 +4643,19 @@ function renderRRScoreView(id, m, byId, num) {
 // partners every round and each player carries their own points into a
 // personal bank. The winner is the top player by the night's winner rule,
 // not the top team. Free play only — no fee, no payouts.
-async function renderRotEvent(id, data) {
+async function renderRotEvent(id, data, opts = {}) {
+  const archived = !!opts.archived;
   clearInterval(refreshTimer);
+  if (archived) rrScoreMatchId = null; // archived nights never open a score screen
   if (!data) {
-    data = await api(`/api/round-robin/events/${id}${viewerQs()}`).catch((e) => ({ error: e.message }));
+    data = await api(archived
+      ? `/api/admin/archive/rr/${id}`
+      : `/api/round-robin/events/${id}${viewerQs()}`).catch((e) => ({ error: e.message }));
     if (data.error || !data.event) {
-      app.innerHTML = `<div class="banner warn">${esc(data.error || 'Not found.')}</div>`;
+      app.innerHTML = archived
+        ? `<div class="fin-dark">${finBackBar('rr', id, 'finished')}<p>${esc(data.error || 'Not found.')}</p></div>`
+        : `<div class="banner warn">${esc(data.error || 'Not found.')}</div>`;
+      if (archived) wireFinBar();
       return;
     }
   }
@@ -4487,7 +4663,7 @@ async function renderRotEvent(id, data) {
   // "View as player": when an Admin flips the switch, the page renders
   // exactly as a player sees it — every admin-control gate below reads
   // showAdmin, never isAdmin.
-  const showAdmin = isAdmin && !viewAsPlayer();
+  const showAdmin = archived ? false : isAdmin && !viewAsPlayer();
   // Member list for the Admin add-player picker (members only, never typed).
   const members = (showAdmin && event.status === 'setup')
     ? (await api('/api/members').catch(() => ({ members: [] }))).members || []
@@ -4504,9 +4680,11 @@ async function renderRotEvent(id, data) {
   const mainPlayer = mainPlayerId ? playersById.get(mainPlayerId) : null;
   const rotators = (rotatorIds || []).map((rid) => playersById.get(rid)).filter(Boolean);
   const placeLabel = (n) => ['1ST', '2ND', '3RD'][n - 1] || `${n}TH`;
-  let html = `<h1>${esc(event.name)}</h1>
+  let html = `${archived ? finBackBar('rr', id, data.state || 'finished') : ''}
+    <h1>${esc(event.name)}</h1>
     <p class="muted">${esc(rrWhen(event))} · Free Charity · Rotating partners · Winner: ${esc(rotWinnerLabel(rule))} · ${rrStatusLabel(event.status)}</p>
-    ${isAdmin ? `<div class="btnrow"><button class="btn secondary small" id="rot-view-toggle">${viewAsPlayer() ? 'Viewing as: Player — switch to Organizer' : 'Viewing as: Organizer — switch to Player'}</button></div>` : ''}
+    ${archived ? `<p class="fin-readonly">Read-only — this night is in the archive.${data.state === 'deleted' ? ' It was deleted, so players can no longer see it.' : ''}</p>` : ''}
+    ${!archived && isAdmin ? `<div class="btnrow"><button class="btn secondary small" id="rot-view-toggle">${viewAsPlayer() ? 'Viewing as: Player — switch to Organizer' : 'Viewing as: Organizer — switch to Player'}</button></div>` : ''}
     ${event.status === 'setup' ? `<p class="muted">${esc(rrCloseLabel(event))}</p>` : ''}`;
   if (finished) html += `<div class="banner finished">Night finished — final standings below.</div>`;
   // Leaders while playing, Winners once finished — top 3 places (a
@@ -4531,7 +4709,7 @@ async function renderRotEvent(id, data) {
   const meId = getIdentity() ? getIdentity().personId : null;
   const myPlayer = meId ? players.find((p) => p.person_id === meId) : null;
   const nightFull = players.length >= (event.max_players || 12);
-  if (event.status === 'setup' && event.published) {
+  if (!archived && event.status === 'setup' && event.published) {
     html += `<div class="card" id="rr-join-box"><h3>Join this night</h3>`;
     if (!meId) {
       html += `<p class="muted">Sign-ups are open — tap your name to join.</p>
@@ -4585,7 +4763,7 @@ async function renderRotEvent(id, data) {
       const s2Win = scored && m.score2 > m.score1;
       const teamRow = (label, won, lost, score) =>
         `<div class="teams${won ? ' rr-team-win' : lost ? ' rr-team-lose' : ''}">${label}${scored ? ` <span class="rr-score">${score}</span>` : ''}</div>`;
-      const canScore = !finished && !scored && isCurrentRound;
+      const canScore = !archived && !finished && !scored && isCurrentRound;
       const canEdit = !finished && scored && showAdmin;
       return `<div class="match-card">
         <div class="teams">Match ${numOf.get(m.id)}</div>
@@ -4630,20 +4808,24 @@ async function renderRotEvent(id, data) {
       html += `<div class="btnrow"><button class="btn secondary" id="rr-reopen">Reopen the night</button><button class="btn secondary" id="rr-delete">Delete night</button></div>`;
     }
   }
+  // Archived nights render inside the dark Finished shell; the live
+  // night page keeps the app's normal light theme.
+  if (archived) html = `<div class="fin-dark">${html}</div>`;
   app.innerHTML = html;
   paintFlags();
+  if (archived) wireFinBar();
 
   // ----- wiring -----
   // "View as player" switch: flips the per-device flag and re-renders.
   const viewToggle = document.getElementById('rot-view-toggle');
   if (viewToggle) {
-    viewToggle.onclick = () => { setViewAsPlayer(!viewAsPlayer()); renderRotEvent(id); };
+    viewToggle.onclick = () => { setViewAsPlayer(!viewAsPlayer()); renderRotEvent(id, null, opts); };
   }
   // Pause the wave: toggles body.paused and re-renders so the button
   // label follows the state.
   const flagPause = document.getElementById('flag-pause');
   if (flagPause) {
-    flagPause.onclick = () => { document.body.classList.toggle('paused'); renderRotEvent(id); };
+    flagPause.onclick = () => { document.body.classList.toggle('paused'); renderRotEvent(id, null, opts); };
   }
   const finishBtn = document.getElementById('rr-finish');
   if (finishBtn) {
@@ -4844,7 +5026,7 @@ async function renderRotEvent(id, data) {
   app.querySelectorAll('button[data-rr-score]').forEach((b) => {
     b.onclick = () => {
       rrScoreMatchId = +b.dataset.rrScore;
-      renderRotEvent(id, data);
+      renderRotEvent(id, data, opts);
     };
   });
   refreshTimer = setInterval(() => {
@@ -5009,21 +5191,28 @@ async function renderBrList() {
     : `<div class="card"><p>No bracket nights yet.</p></div>`;
 }
 
-async function renderBrEvent(id) {
+async function renderBrEvent(id, opts = {}) {
+  const archived = !!opts.archived;
   // Same refresh discipline as game days and round robin: clear the old
   // timer before setting a new one. No refresh while a score screen is
   // open, so typed scores are never wiped mid-entry.
   clearInterval(refreshTimer);
-  const data = await api(`/api/bracket/events/${id}${viewerQs()}`).catch((e) => ({ error: e.message }));
+  if (archived) brScoreMatchId = null; // archived nights never open a score screen
+  const data = await api(archived
+    ? `/api/admin/archive/bracket/${id}`
+    : `/api/bracket/events/${id}${viewerQs()}`).catch((e) => ({ error: e.message }));
   if (data.error || !data.event) {
-    app.innerHTML = `<div class="banner warn">${esc(data.error || 'Not found.')}</div>`;
+    app.innerHTML = archived
+      ? `<div class="fin-dark">${finBackBar('bracket', id, 'finished')}<p>${esc(data.error || 'Not found.')}</p></div>`
+      : `<div class="banner warn">${esc(data.error || 'Not found.')}</div>`;
+    if (archived) wireFinBar();
     return;
   }
   const { event, teams, solos = [], matches, podium, records, payouts, isAdmin } = data;
   // "View as player": when an Admin flips the switch, the page renders
   // exactly as a player sees it — every admin-control gate below reads
   // showAdmin, never isAdmin.
-  const showAdmin = isAdmin && !viewAsPlayer();
+  const showAdmin = archived ? false : isAdmin && !viewAsPlayer();
   // Member list for the Admin add-team picker (members only, never typed).
   const members = (showAdmin && event.status === 'setup')
     ? (await api('/api/members').catch(() => ({ members: [] }))).members || []
@@ -5072,9 +5261,11 @@ async function renderBrEvent(id) {
     if (open) { renderBrScoreView(id, open, byId, numOf.get(open.id), titleOf(open)); return; }
     brScoreMatchId = null;
   }
-  let html = `<h1>${esc(event.name)}</h1>
+  let html = `${archived ? finBackBar('bracket', id, data.state || 'finished') : ''}
+    <h1>${esc(event.name)}</h1>
     <p class="muted">${esc(rrWhen(event))} · Double elimination · ${rrKindLabel(event.kind)} · ${rrStatusLabel(event.status)}</p>
-    ${isAdmin ? `<div class="btnrow"><button class="btn secondary small" id="br-view-toggle">${viewAsPlayer() ? 'Viewing as: Player — switch to Organizer' : 'Viewing as: Organizer — switch to Player'}</button></div>` : ''}
+    ${archived ? `<p class="fin-readonly">Read-only — this night is in the archive.${data.state === 'deleted' ? ' It was deleted, so players can no longer see it.' : ''}</p>` : ''}
+    ${!archived && isAdmin ? `<div class="btnrow"><button class="btn secondary small" id="br-view-toggle">${viewAsPlayer() ? 'Viewing as: Player — switch to Organizer' : 'Viewing as: Organizer — switch to Player'}</button></div>` : ''}
     ${event.status === 'setup' ? `<p class="muted">${esc(rrCloseLabel(event))}</p>` : ''}`;
   // Champion banner — as soon as the grand final decides a champion, even
   // before the night is marked finished. Gated on the podium, never on
@@ -5172,7 +5363,7 @@ async function renderBrEvent(id) {
   const myTeam = meId ? teams.find((t) => t.person1_id === meId || t.person2_id === meId) : null;
   const mySolo = meId ? solos.find((s) => s.person_id === meId) : null;
   const nightFull = teams.length >= (event.max_teams || 12);
-  if (event.status === 'setup' && event.published) {
+  if (!archived && event.status === 'setup' && event.published) {
     // Join box — members join themselves. The organizer's add-by-hand form
     // stays below in the Teams card, and joining closes on its own once
     // the night is built (status playing).
@@ -5251,7 +5442,7 @@ async function renderBrEvent(id) {
       // and that is actually going to be played (the reset game only when
       // it is needed) — a bracket plays several matches at once, so there
       // is no single "round in play" to gate on.
-      const canScore = !finished && !scored && m.ready && m.active;
+      const canScore = !archived && !finished && !scored && m.ready && m.active;
       // Edit link: Admin-only, on a scored match while the night is still
       // playing — reopens the same score screen, so a mistyped score can
       // be fixed without the big SCORE button coming back.
@@ -5353,21 +5544,25 @@ async function renderBrEvent(id) {
       html += `<div class="btnrow"><button class="btn secondary" id="br-reopen">Reopen the night</button><button class="btn secondary" id="br-delete">Delete night</button></div>`;
     }
   }
+  // Archived nights render inside the dark Finished shell; the live
+  // night page keeps the app's normal light theme.
+  if (archived) html = `<div class="fin-dark">${html}</div>`;
   app.innerHTML = html;
   paintFlags();
+  if (archived) wireFinBar();
   // "View as player" switch: flips the per-device flag and re-renders.
   const viewToggle = document.getElementById('br-view-toggle');
   if (viewToggle) {
-    viewToggle.onclick = () => { setViewAsPlayer(!viewAsPlayer()); renderBrEvent(id); };
+    viewToggle.onclick = () => { setViewAsPlayer(!viewAsPlayer()); renderBrEvent(id, opts); };
   }
   // Pause the wave: toggles body.paused and re-renders so the button
   // label follows the state.
   const flagPause = document.getElementById('flag-pause');
   if (flagPause) {
-    flagPause.onclick = () => { document.body.classList.toggle('paused'); renderBrEvent(id); };
+    flagPause.onclick = () => { document.body.classList.toggle('paused'); renderBrEvent(id, opts); };
   }
   app.querySelectorAll('button[data-br-score]').forEach((b) => {
-    b.onclick = () => { brScoreMatchId = +b.dataset.brScore; renderBrEvent(id); };
+    b.onclick = () => { brScoreMatchId = +b.dataset.brScore; renderBrEvent(id, opts); };
   });
   app.querySelectorAll('button[data-rm-team]').forEach((b) => {
     b.onclick = async () => {

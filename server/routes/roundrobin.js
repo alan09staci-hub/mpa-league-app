@@ -95,8 +95,11 @@ function bad(res, status, msg) {
   throw e;
 }
 
-async function getEvent(id) {
-  const { rows } = await pool.query('SELECT * FROM rr_events WHERE id = $1', [id]);
+async function getEvent(id, includeDeleted = false) {
+  const { rows } = await pool.query(
+    'SELECT * FROM rr_events WHERE id = $1' + (includeDeleted ? '' : ' AND deleted_at IS NULL'),
+    [id]
+  );
   return rows[0] || null;
 }
 
@@ -283,7 +286,7 @@ router.get('/round-robin/events', (req, res) =>
               (SELECT COUNT(*) FROM rr_rot_matches m WHERE m.event_id = e.id) AS match_count,
               (SELECT COUNT(*) FROM rr_matches m WHERE m.event_id = e.id AND m.score1 IS NOT NULL) +
               (SELECT COUNT(*) FROM rr_rot_matches m WHERE m.event_id = e.id AND m.score1 IS NOT NULL) AS scored_count
-         FROM rr_events e ORDER BY e.event_date DESC, e.id DESC`
+         FROM rr_events e WHERE e.deleted_at IS NULL ORDER BY e.event_date DESC, e.id DESC`
     );
     // A signed-in player only sees playing/finished nights they are part
     // of (plus every setup night, so anyone can join). No viewer, or an
@@ -669,7 +672,10 @@ router.delete('/admin/round-robin/events/:id', auth.requireAdmin, (req, res) =>
   handle(async () => {
     const event = await getEvent(asInt(req.params.id));
     if (!event) return bad(res, 404, 'Round robin not found.');
-    await pool.query('DELETE FROM rr_events WHERE id = $1', [event.id]);
+    // Soft delete (migration 017): the night leaves the players' view
+    // but stays in the database — the Admin-only Finished tab still
+    // holds it, where it can be restored or deleted forever.
+    await pool.query('UPDATE rr_events SET deleted_at = now() WHERE id = $1', [event.id]);
     res.json({ ok: true });
   }, req, res)
 );
@@ -994,3 +1000,8 @@ router.post('/admin/round-robin/events/:id/reopen', auth.requireAdmin, (req, res
 );
 
 module.exports = router;
+// The archive routes reuse the full detail payload (and the
+// includeDeleted lookup) so an archived night renders exactly like the
+// live night page, read-only.
+module.exports.eventDetail = eventDetail;
+module.exports.getEvent = getEvent;

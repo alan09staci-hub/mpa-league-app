@@ -22,8 +22,11 @@ function optInWindow(session, prevSession, league) {
   return { opensAt, deadlineAt, startsAt };
 }
 
-async function getLeague(client, leagueId) {
-  const { rows } = await client.query('SELECT * FROM leagues WHERE id = $1', [leagueId]);
+async function getLeague(client, leagueId, includeDeleted = false) {
+  const { rows } = await client.query(
+    'SELECT * FROM leagues WHERE id = $1' + (includeDeleted ? '' : ' AND deleted_at IS NULL'),
+    [leagueId]
+  );
   return rows[0] || null;
 }
 
@@ -74,8 +77,8 @@ async function getRoster(client, leagueId) {
 }
 
 // Load everything computeStandings needs, plus the current game day.
-async function loadStandingsData(client, leagueId, now = new Date()) {
-  const league = await getLeague(client, leagueId);
+async function loadStandingsData(client, leagueId, now = new Date(), includeDeleted = false) {
+  const league = await getLeague(client, leagueId, includeDeleted);
   if (!league) return null;
   const roster = await getRoster(client, leagueId);
   const sessions = await getSessions(client, leagueId);

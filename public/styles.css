@@ -532,3 +532,62 @@ button.stat { cursor: pointer; font: inherit; }
 .gl-dash { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 12px; }
 .site-footer { text-align: center; padding: 20px 12px 28px; font-size: 13px; }
 .site-footer a { color: var(--grey); text-decoration: none; }
+
+/* ---------- Finished (Archive) tab — Admin-only, dark page ---------- */
+/* Preview colors (archive-tab-preview): page #0b0b0d, panels #16161a,
+   text #f5f4ef, muted #a8a8b1, faint #7c7c86, yellow #ffd21f. Scoped
+   under .fin-dark so nothing else in the app changes color. */
+.fin-dark { background: #0b0b0d; color: #f5f4ef; margin: -14px -14px 0; padding: 18px 14px 40px; min-height: 75vh; }
+.fin-dark h1, .fin-dark h2, .fin-dark h3 { color: #f5f4ef; }
+.fin-dark .muted { color: #a8a8b1; }
+.fin-dark a { color: #ffd21f; }
+.fin-lede { font-size: 17px; font-weight: 700; }
+.fin-rule { color: #a8a8b1; font-size: 14px; }
+.fin-readonly { color: #7c7c86; font-size: 14px; font-style: italic; }
+.fin-bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.fin-back { color: #ffd21f; font-weight: 700; text-decoration: none; }
+.fin-bar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.fin-section { margin-top: 22px; }
+.fin-section h2 { display: flex; align-items: baseline; gap: 8px; }
+.fin-count { color: #7c7c86; font-size: 13px; font-weight: 700; }
+.fin-grid { display: grid; gap: 12px; }
+@media (min-width: 600px) { .fin-grid { grid-template-columns: 1fr 1fr; } }
+.fin-card { background: #16161a; border: 1px solid #2e2e36; border-radius: 12px; padding: 14px; }
+.fin-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.fin-card-top h3 { margin: 0; }
+.fin-pill { flex: none; font-size: 12px; font-weight: 800; border-radius: 999px; padding: 3px 10px; border: 1px solid transparent; }
+.fin-pill-finished { background: #233018; color: #b7e07a; border-color: #3c5423; }
+.fin-pill-deleted { background: #3a1d1d; color: #f0a8a8; border-color: #6b2f2f; }
+.fin-meta { color: #a8a8b1; font-size: 14px; margin: 6px 0; }
+.fin-headline { font-weight: 700; margin: 6px 0; }
+.fin-medals { margin: 8px 0; }
+.fin-medal-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+.fin-medal { width: 28px; height: 28px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; }
+.fin-medal-0 { background: radial-gradient(circle at 32% 30%, #ffe98a, #d9a916 70%); color: #221a00; }
+.fin-medal-1 { background: radial-gradient(circle at 32% 30%, #ffffff, #a9aab2 70%); color: #26262b; }
+.fin-medal-2 { background: radial-gradient(circle at 32% 30%, #f3b57e, #9c5c26 70%); color: #2b1700; }
+.fin-view { display: inline-block; background: #ffd21f; color: #191400; font-weight: 800; border-radius: 9px; padding: 10px 16px; text-decoration: none; margin-top: 8px; }
+.fin-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.fin-empty { background: #101013; border: 1px dashed #3a3a44; border-radius: 12px; padding: 18px 14px; }
+.fin-empty h2 { margin-top: 0; }
+.fin-champ { background: linear-gradient(160deg, #2b2303, #171204 55%, #0f0d02); border: 1px solid #6b5510; border-radius: 12px; padding: 16px; margin: 12px 0; text-align: center; }
+.fin-champ-label { color: #ffd21f; font-weight: 800; letter-spacing: 2px; font-size: 13px; }
+.fin-champ-name { color: #ffe45c; font-size: 26px; font-weight: 800; margin: 4px 0; }
+.fin-champ-how { color: #d8cf9e; font-weight: 700; }
+.fin-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.fin-table th, .fin-table td { text-align: left; padding: 7px 6px; border-bottom: 1px solid #2e2e36; }
+.fin-table th { color: #a8a8b1; font-size: 13px; }
+.fin-table tr.fin-champ-row td { background: rgba(255,210,31,.08); }
+.fin-session { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid #2e2e36; }
+/* Archived results reuse the live cards — dark versions, same page only. */
+.fin-dark .card { background: #16161a; border-color: #2e2e36; color: #f5f4ef; }
+.fin-dark .card h2, .fin-dark .card h3 { color: #f5f4ef; }
+.fin-dark .match-card { background: #16161a; border-color: #2e2e36; color: #f5f4ef; }
+.fin-dark .match-card .vs { color: #a8a8b1; }
+.fin-dark .rr-round { background: #16161a; border-color: #2e2e36; }
+.fin-dark .rr-round h3 { color: #f5f4ef; }
+.fin-dark .banner.finished { background: #1d4d2b; border-color: #2f7a44; color: #b7e7c6; }
+.fin-dark .br-tree-colhead { color: #a8a8b1; }
+.fin-dark .br-tree-match { background: #1e1e23; border-color: #2e2e36; color: #f5f4ef; }
+.fin-dark .br-tree-match::before, .fin-dark .br-tree-match::after, .fin-dark .br-tree-elbow { background: #3a3a44; }
+.fin-dark .badge.completed, .fin-dark .badge.upcoming { background: #26262d; color: #a8a8b1; }
