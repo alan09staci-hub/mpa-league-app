@@ -320,6 +320,7 @@ body.paused .flag-svg, body.paused .flag-folds, body.paused .flag-shine { animat
 .admin-section.sec-ambpasscodes > button.head { background: #8e44ad; }
 .admin-section.sec-activity > button.head { background: #0e7c7b; }
 .admin-section.sec-bracket > button.head { background: #e07b00; }
+.admin-section.sec-archive > button.head { background: #34495e; }
 /* logo watermark, Admin view only (rendered by renderAdmin) */
 .admin-watermark { position: fixed; inset: 0; z-index: 0; background: url('/mpa-logo.webp') center / cover no-repeat; opacity: .2; pointer-events: none; }
 .admin-view { position: relative; z-index: 1; }
@@ -538,6 +539,9 @@ button.stat { cursor: pointer; font: inherit; }
    text #f5f4ef, muted #a8a8b1, faint #7c7c86, yellow #ffd21f. Scoped
    under .fin-dark so nothing else in the app changes color. */
 .fin-dark { background: #0b0b0d; color: #f5f4ef; margin: -14px -14px 0; padding: 18px 14px 40px; min-height: 75vh; }
+/* Archive list embedded in the Admin page: a dark panel inset in the
+   light section body, not a full-bleed page. */
+.fin-dark.fin-in-admin { margin: 0; min-height: 0; padding: 14px; border-radius: 12px; }
 .fin-dark h1, .fin-dark h2, .fin-dark h3 { color: #f5f4ef; }
 .fin-dark .muted { color: #a8a8b1; }
 .fin-dark a { color: #ffd21f; }

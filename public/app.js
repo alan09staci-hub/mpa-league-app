@@ -137,17 +137,15 @@ function renderIdentity() {
   };
 }
 
-// The Admin and Finished links in the header show only while this
-// device is signed in as Admin — players never see either. The sign-in
-// link lives in the footer instead, so it is always findable without
-// sitting in the header.
+// The Admin link in the header shows only while this device is signed
+// in as Admin — players never see it. The sign-in link lives in the
+// footer instead, so it is always findable without sitting in the
+// header. (The archive lives on the Admin page, not in the header.)
 async function syncAdminLink() {
   const link = document.getElementById('adminLink');
-  const fin = document.getElementById('finishedLink');
-  if (!link && !fin) return;
+  if (!link) return;
   const me = await api('/api/admin/me').catch(() => ({ admin: false }));
-  if (link) link.hidden = !me.admin;
-  if (fin) fin.hidden = !me.admin;
+  link.hidden = !me.admin;
 }
 
 // ---------- helpers ----------
@@ -1943,6 +1941,20 @@ async function renderAdminBody(leagues, league, me) {
   const { activity } = await api('/api/admin/activity');
   const activityHtml = `<div id="admin-activity-list">${activityRowsHtml(activity)}</div>`;
 
+  // ---- archive: finished + deleted leagues/nights, inline in this page ----
+  // Same data as the Finished page (GET /api/admin/archive). Only fetched
+  // while the section is open — the section toggle re-renders this body,
+  // so opening it always loads fresh data.
+  let archiveHtml = '';
+  if (adminSections.archive) {
+    try {
+      const archiveData = await api('/api/admin/archive');
+      archiveHtml = `<div class="fin-dark fin-in-admin">${finListHtml(archiveData.items || [])}</div>`;
+    } catch (e) {
+      archiveHtml = `<p>${esc(e.message || 'Could not load the archive.')}</p>`;
+    }
+  }
+
   if (league) {
     const l = await api(`/api/leagues/${league.id}`);
     regHtml = `
@@ -2155,7 +2167,8 @@ async function renderAdminBody(leagues, league, me) {
     section('passcodes', 'Admin passcodes', 'Each admin signs in with their own passcode — set one, change one, or remove one.', passcodesHtml) +
     section('ambpasscodes', 'Ambassador passcodes', 'Each ambassador signs in with their own passcode — set one, change one, or remove one.', ambPasscodesHtml) +
     section('activity', 'Admin activity', 'Who signed in, and when. Refreshes every 30 seconds while you are on this page.', activityHtml) +
-    section('delete', 'Delete a league', 'Wipe a league clean: players, game days, matches, and sign-ups go with it. Members stay.', deleteHtml);
+    section('delete', 'Delete a league', 'Wipe a league clean: players, game days, matches, and sign-ups go with it. Members stay.', deleteHtml) +
+    section('archive', 'Archive', 'Finished leagues and nights — and deleted ones — live here. Restore one, or delete it forever.', archiveHtml);
 
 
   body.querySelectorAll('.admin-section > button.head').forEach((b) => {
@@ -2165,6 +2178,9 @@ async function renderAdminBody(leagues, league, me) {
       renderAdminBody(leagues, league, me);
     };
   });
+
+  // ---- archive actions: Restore / Delete forever re-render this page ----
+  wireFinBar(() => renderAdminBody(leagues, league, me));
 
   // ---- admin passcodes: set/change and remove ----
   document.querySelectorAll('[data-pc-set]').forEach((b) => {
@@ -4019,27 +4035,13 @@ function wireFinBar(after) {
   });
 }
 
-async function renderFinished() {
-  const me = await api('/api/admin/me').catch(() => ({ admin: false }));
-  if (!me.admin) {
-    app.innerHTML = `<div class="fin-dark"><h1>Finished</h1><p>This page is for Admins only.</p></div>`;
-    return;
-  }
-  app.innerHTML = `<div class="fin-dark"><h1>Finished</h1>
-    <p class="fin-lede">Finished leagues and nights live here — and so do deleted ones, until you delete them forever.</p>
-    <p class="fin-rule">Finishing a night or a league archives it. Deleting one takes it off the players' view, but the archive still holds it — restore it here, or delete it forever.</p>
-    <div id="fin-list"><p class="muted">Loading…</p></div></div>`;
-  let data;
-  try {
-    data = await api('/api/admin/archive');
-  } catch (e) {
-    document.getElementById('fin-list').innerHTML = `<p>${esc(e.message || 'Could not load the archive.')}</p>`;
-    return;
-  }
-  const items = data.items || [];
+// Archive list HTML, shared by the Finished page and the Admin Archive
+// section: grouped by kind, newest first (the API returns them that
+// way), MM/DD/YYYY dates, Finished/Deleted pills, medal rows, and the
+// View results / Restore / Delete forever actions on every card.
+function finListHtml(items) {
   if (!items.length) {
-    document.getElementById('fin-list').innerHTML = `<div class="fin-empty"><h2>Nothing finished yet</h2><p>When a league season or a night finishes — or when something is deleted — it will show up here.</p></div>`;
-    return;
+    return `<div class="fin-empty"><h2>Nothing finished yet</h2><p>When a league season or a night finishes — or when something is deleted — it will show up here.</p></div>`;
   }
   const kindLabel = { league: 'League', rr: 'Round Robin', bracket: 'Bracket' };
   const groups = [
@@ -4047,7 +4049,7 @@ async function renderFinished() {
     ['rr', 'Round Robin nights'],
     ['bracket', 'Bracket nights'],
   ];
-  const html = groups.map(([kind, title]) => {
+  return groups.map(([kind, title]) => {
     const list = items.filter((i) => i.kind === kind);
     if (!list.length) return '';
     return `<section class="fin-section"><h2>${title} <span class="fin-count">${list.length}</span></h2><div class="fin-grid">` +
@@ -4067,7 +4069,26 @@ async function renderFinished() {
         </article>`;
       }).join('') + `</div></section>`;
   }).join('');
-  document.getElementById('fin-list').innerHTML = html;
+}
+
+async function renderFinished() {
+  const me = await api('/api/admin/me').catch(() => ({ admin: false }));
+  if (!me.admin) {
+    app.innerHTML = `<div class="fin-dark"><h1>Finished</h1><p>This page is for Admins only.</p></div>`;
+    return;
+  }
+  app.innerHTML = `<div class="fin-dark"><h1>Finished</h1>
+    <p class="fin-lede">Finished leagues and nights live here — and so do deleted ones, until you delete them forever.</p>
+    <p class="fin-rule">Finishing a night or a league archives it. Deleting one takes it off the players' view, but the archive still holds it — restore it here, or delete it forever.</p>
+    <div id="fin-list"><p class="muted">Loading…</p></div></div>`;
+  let data;
+  try {
+    data = await api('/api/admin/archive');
+  } catch (e) {
+    document.getElementById('fin-list').innerHTML = `<p>${esc(e.message || 'Could not load the archive.')}</p>`;
+    return;
+  }
+  document.getElementById('fin-list').innerHTML = finListHtml(data.items || []);
   wireFinBar(() => renderFinished());
 }
 

@@ -654,6 +654,28 @@ async function req(method, path) {
   r = await req('DELETE', '/api/admin/archive/rr/99');
   check(r.status === 404, 'Delete forever for a missing night is 404, got ' + r.status);
 
+  // --- Archive placement: no header Finished link; Archive section on
+  // the Admin page, after Delete a league, with the list inline ---
+  // (fs is already required above; path is new here.)
+  const path = require('path');
+  const readSrc = (p) => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
+  const indexHtml = readSrc('public/index.html');
+  check(!indexHtml.includes('finishedLink'), 'header has no Finished link');
+  check(!indexHtml.includes('Finished'), 'header has no Finished tab at all');
+  // (appJs is already loaded above, for the fmtDateMDY extraction.)
+  check(!appJs.includes("getElementById('finishedLink')"), 'app.js no longer toggles a Finished header link');
+  check(appJs.includes("parts[0] === 'finished'"), 'the #/finished route still exists for View results links');
+  check(appJs.includes('async function renderFinished()'), 'renderFinished still renders the archive page');
+  check(appJs.includes('finListHtml'), 'archive list HTML is shared via finListHtml');
+  check(appJs.indexOf("section('archive'") > appJs.indexOf("section('delete'"), 'Archive section is assembled after Delete a league');
+  check(appJs.includes("section('archive', 'Archive'"), 'Admin page has an Archive section');
+  check((appJs.match(/api\('\/api\/admin\/archive'\)/g) || []).length >= 2, 'Admin Archive section loads the same archive endpoint as the Finished page');
+  check(appJs.includes('fin-dark fin-in-admin'), 'Archive section renders the list in the dark panel');
+  check(appJs.includes('wireFinBar(() => renderAdminBody(leagues, league, me))'), 'archive actions in the Admin section re-render the Admin page');
+  const css = readSrc('public/styles.css');
+  check(css.includes('.sec-archive'), 'styles.css has a .sec-archive header color rule');
+  check(css.includes('.fin-in-admin'), 'styles.css scopes the dark archive panel for the Admin section');
+
   server.close();
   console.log(`\nAll archive tests passed (${count} assertions).`);
   process.exit(0);
