@@ -165,11 +165,11 @@ table.standings tr.you td { background: #fff8e1; }
 .rr-matches .match-card { margin: 0; max-width: none; }
 @media (max-width: 860px) { .rr-matches { grid-template-columns: 1fr; } }
 .rr-place { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
-.rr-medal { width: 64px; height: 64px; flex: none; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 800; text-shadow: 0 1px 0 rgba(255,255,255,.45); box-shadow: 0 6px 16px rgba(0,0,0,.6), inset 0 0 0 2px rgba(0,0,0,.16), inset 0 2px 5px rgba(255,255,255,.55), inset 0 -4px 8px rgba(0,0,0,.35); }
-.rr-medal.m1 { background: radial-gradient(circle at 32% 28%, #fff3b0 0%, #ffd94d 30%, #f0b41c 62%, #c07f06 100%); color: rgba(40,26,0,.82); }
-.rr-medal.m2 { background: radial-gradient(circle at 32% 28%, #ffffff 0%, #e8ebef 32%, #c3c9d1 62%, #8f97a3 100%); color: rgba(30,36,46,.85); }
-.rr-medal.m3 { background: radial-gradient(circle at 32% 28%, #ffd9ae 0%, #eda55e 32%, #c97b35 62%, #8f4f1c 100%); color: rgba(46,22,0,.85); }
-.rr-medal.m4 { background: #e8e6e1; color: #555; }
+.rr-medal { width: 91px; flex: none; }
+.rr-medal svg { display: block; width: 100%; height: auto; filter: drop-shadow(0 6px 10px rgba(0,0,0,.45)); }
+/* The ribbon medal SVG is 120 wide with the disc 74 wide, so a 91px-wide
+   medal renders the disc at 56px — the approved preview size, a touch
+   smaller than the old 64px disc. The ribbon adds its height above it. */
 .rr-place-info { flex: 1; min-width: 0; }
 .rr-place-label { font-size: 12px; letter-spacing: 1px; color: var(--grey); font-weight: 700; }
 .rr-place-team { font-size: 20px; font-weight: 800; }
@@ -567,10 +567,8 @@ button.stat { cursor: pointer; font: inherit; }
 .fin-headline { font-weight: 700; margin: 6px 0; }
 .fin-medals { margin: 8px 0; }
 .fin-medal-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
-.fin-medal { width: 28px; height: 28px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; }
-.fin-medal-0 { background: radial-gradient(circle at 32% 30%, #ffe98a, #d9a916 70%); color: #221a00; }
-.fin-medal-1 { background: radial-gradient(circle at 32% 30%, #ffffff, #a9aab2 70%); color: #26262b; }
-.fin-medal-2 { background: radial-gradient(circle at 32% 30%, #f3b57e, #9c5c26 70%); color: #2b1700; }
+.fin-medal { width: 24px; flex: none; }
+.fin-medal svg { display: block; width: 100%; height: auto; filter: drop-shadow(0 2px 3px rgba(0,0,0,.5)); }
 .fin-view { display: inline-block; background: #ffd21f; color: #191400; font-weight: 800; border-radius: 9px; padding: 10px 16px; text-decoration: none; margin-top: 8px; }
 .fin-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .fin-empty { background: #101013; border: 1px dashed #3a3a44; border-radius: 12px; padding: 18px 14px; }

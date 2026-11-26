@@ -104,6 +104,100 @@ function paintFlags() {
     buildFlagSvg(svg);
   });
 }
+// ---------- Ribbon medals (shared SVG) ----------
+// Ported from the ribbon-medals-preview artifact (approved 2026-11-25):
+// a red-white-blue striped V-ribbon, a radial-gradient metal disc with a
+// darker rim, a laurel wreath, small "MPA" lettering above the big place
+// number. One helper serves every medal spot: night cards use detail
+// 'mid' (disc 56px), Finished cards use 'small' (24px wide, laurel
+// simplified). The champion banner's trophy is separate and untouched.
+const MEDAL_METALS = {
+  gold: { hi: '#ffe98a', mid: '#f6bd2e', rim: '#9a6b00', deep: '#7a5200', laurel: '#a87c0a', ring: '#c99700' },
+  silver: { hi: '#ffffff', mid: '#ccd0d6', rim: '#787d85', deep: '#54585e', laurel: '#878c94', ring: '#9aa0a8' },
+  bronze: { hi: '#ffc890', mid: '#d98e4a', rim: '#7c4a1e', deep: '#63380f', laurel: '#96601f', ring: '#a86a2c' },
+};
+const MEDAL_RIBBON = { red: '#c0272d', white: '#f4f1ea', blue: '#22408c' };
+const MEDAL_KEYS = ['gold', 'silver', 'bronze'];
+function medalStrapSlices(topL, topR, botL, botR, colors) {
+  // Split a strap quad into 3 lengthwise stripes.
+  let out = '';
+  for (let i = 0; i < 3; i++) {
+    const t0 = topL + (topR - topL) * i / 3, t1 = topL + (topR - topL) * (i + 1) / 3;
+    const b0 = botL + (botR - botL) * i / 3, b1 = botL + (botR - botL) * (i + 1) / 3;
+    out += '<polygon points="' + t0 + ',2 ' + t1 + ',2 ' + b1 + ',52 ' + b0 + ',52" fill="' + colors[i] + '"/>';
+  }
+  return out;
+}
+function medalLeaves(cx, cy, r, m, count, leafLen) {
+  // Laurel leaves along two arcs, from the bottom of the disc up each side.
+  let out = '';
+  const sides = [
+    { from: 100, to: 174 }, // left branch (degrees, y-down)
+    { from: 80, to: 6 }, // right branch
+  ];
+  for (let s = 0; s < sides.length; s++) {
+    const a0 = sides[s].from, a1 = sides[s].to;
+    for (let i = 0; i < count; i++) {
+      const t = count === 1 ? 0 : i / (count - 1);
+      const deg = a0 + (a1 - a0) * t;
+      const rad = deg * Math.PI / 180;
+      const x = cx + r * Math.cos(rad), y = cy + r * Math.sin(rad);
+      const tilt = deg + (s === 0 ? 38 : -38) + 90;
+      out += '<ellipse cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" rx="' + leafLen + '" ry="' + (leafLen * 0.42).toFixed(1) +
+        '" fill="' + m.laurel + '" opacity="0.9" transform="rotate(' + tilt.toFixed(0) + ' ' + x.toFixed(1) + ' ' + y.toFixed(1) + ')"/>';
+    }
+    // stem arc
+    const r0 = a0 * Math.PI / 180, r1 = a1 * Math.PI / 180;
+    const x0 = cx + r * Math.cos(r0), y0 = cy + r * Math.sin(r0);
+    const x1 = cx + r * Math.cos(r1), y1 = cy + r * Math.sin(r1);
+    const sweep = s === 0 ? 0 : 1;
+    out += '<path d="M ' + x0.toFixed(1) + ' ' + y0.toFixed(1) + ' A ' + r + ' ' + r + ' 0 0 ' + sweep + ' ' +
+      x1.toFixed(1) + ' ' + y1.toFixed(1) + '" fill="none" stroke="' + m.laurel + '" stroke-width="1.6" opacity="0.85"/>';
+  }
+  return out;
+}
+function medalSvg(place, detail) {
+  const m = MEDAL_METALS[MEDAL_KEYS[(place || 1) - 1]] || MEDAL_METALS.gold;
+  const num = place || 1;
+  const gid = 'medal-' + (detail || 'mid') + '-' + num + '-' + Math.random().toString(36).slice(2, 7);
+  const cx = 60, cy = 94, R = 37;
+  const leafCount = detail === 'small' ? 3 : 5;
+  const leafLen = detail === 'small' ? 4.6 : 5.6;
+  const numSize = detail === 'small' ? 36 : 34;
+  const mpaSize = detail === 'small' ? 10.5 : 11.5;
+  const red = MEDAL_RIBBON.red, white = MEDAL_RIBBON.white, blue = MEDAL_RIBBON.blue;
+  let s = '';
+  s += '<svg viewBox="0 0 120 140" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">';
+  s += '<defs><radialGradient id="g' + gid + '" cx="38%" cy="32%" r="80%">' +
+    '<stop offset="0%" stop-color="' + m.hi + '"/><stop offset="55%" stop-color="' + m.mid + '"/>' +
+    '<stop offset="100%" stop-color="' + m.rim + '"/></radialGradient></defs>';
+  // Ribbon: left strap red-white-blue (outer to inner), right strap mirrored (inner to outer)
+  s += medalStrapSlices(20, 50, 44, 62, [red, white, blue]);
+  s += medalStrapSlices(70, 100, 58, 76, [blue, white, red]);
+  // Ribbon fold shading
+  s += '<polygon points="20,2 50,2 62,52 44,52" fill="rgba(0,0,0,0.10)"/>';
+  s += '<polygon points="85,2 100,2 76,52 67,52" fill="rgba(0,0,0,0.16)"/>';
+  s += '<polygon points="20,2 32,2 48,52 44,52" fill="rgba(255,255,255,0.10)"/>';
+  // Ring joining ribbon to disc
+  s += '<rect x="54" y="47" width="12" height="13" rx="4" fill="none" stroke="' + m.ring + '" stroke-width="3.4"/>';
+  // Disc: darker rim + gradient face + inner line
+  s += '<circle cx="' + cx + '" cy="' + cy + '" r="' + R + '" fill="' + m.rim + '"/>';
+  s += '<circle cx="' + cx + '" cy="' + cy + '" r="' + (R - 3) + '" fill="url(#g' + gid + ')"/>';
+  s += '<circle cx="' + cx + '" cy="' + cy + '" r="' + (R - 6.5) + '" fill="none" stroke="' + m.rim + '" stroke-width="1.1" opacity="0.55"/>';
+  // Laurel
+  s += medalLeaves(cx, cy, R - 10.5, m, leafCount, leafLen);
+  // MPA lettering above the number, in the metal's dark shade
+  s += '<text x="' + cx + '" y="' + (cy - 14) + '" text-anchor="middle" dominant-baseline="central" ' +
+    'font-family="Barlow, system-ui, sans-serif" font-weight="700" letter-spacing="1.6" font-size="' + mpaSize + '" fill="' + m.deep + '">MPA</text>';
+  // Number
+  s += '<text x="' + cx + '" y="' + (cy + 9) + '" text-anchor="middle" dominant-baseline="central" ' +
+    'font-family="Barlow, system-ui, sans-serif" font-weight="800" font-size="' + numSize + '" fill="' + m.deep + '">' + num + '</text>';
+  // Highlight
+  s += '<ellipse cx="' + (cx - 13) + '" cy="' + (cy - 16) + '" rx="13" ry="7" fill="#ffffff" opacity="0.20" transform="rotate(-24 ' + (cx - 13) + ' ' + (cy - 16) + ')"/>';
+  s += '</svg>';
+  return s;
+}
+// ---------- /Ribbon medals ----------
 function renderIdentity() {
   syncAdminLink();
   const slot = document.getElementById('identitySlot');
@@ -4054,7 +4148,7 @@ function finListHtml(items) {
     if (!list.length) return '';
     return `<section class="fin-section"><h2>${title} <span class="fin-count">${list.length}</span></h2><div class="fin-grid">` +
       list.map((it) => {
-        const medals = (it.top || []).map((t, i) => `<div class="fin-medal-row"><span class="fin-medal fin-medal-${i}">${i + 1}</span><span>${esc(t)}</span></div>`).join('');
+        const medals = (it.top || []).map((t, i) => `<div class="fin-medal-row"><span class="fin-medal">${medalSvg(i + 1, 'small')}</span><span>${esc(t)}</span></div>`).join('');
         return `<article class="fin-card">
           <div class="fin-card-top"><h3>${esc(it.name)}</h3><span class="fin-pill fin-pill-${it.state}">${it.state === 'deleted' ? 'Deleted' : 'Finished'}</span></div>
           <p class="fin-meta">${fmtDateMDY(it.date)} · ${kindLabel[it.kind]}</p>
@@ -4183,7 +4277,7 @@ async function renderRREvent(id, opts = {}) {
         .map((p) => {
           const s = p.teamId != null ? standingByTeam.get(p.teamId) : null;
           return `<div class="rr-place">
-            <div class="rr-medal m${p.place}">${p.place}</div>
+            <div class="rr-medal">${medalSvg(p.place, 'mid')}</div>
             <div class="rr-place-info">
               <div class="rr-place-label">${placeLabel(p.place)} PLACE</div>
               <div class="rr-place-team">${s ? esc(s.label) : '<span class="muted">—</span>'}</div>
@@ -4203,7 +4297,7 @@ async function renderRREvent(id, opts = {}) {
     html += `<div class="card medal-flag">${FLAG_WRAP_HTML}<strong>${finished ? 'Winners' : 'Leaders'}</strong>
       ${standings.filter((s) => s.played > 0).slice(0, 3)
         .map((s) => `<div class="rr-place">
-          <div class="rr-medal m${s.rank}">${s.rank}</div>
+          <div class="rr-medal">${medalSvg(s.rank, 'mid')}</div>
           <div class="rr-place-info">
             <div class="rr-place-label">${placeLabel(s.rank)} PLACE</div>
             <div class="rr-place-team">${esc(s.label)}</div>
@@ -4715,7 +4809,7 @@ async function renderRotEvent(id, data, opts = {}) {
     html += `<div class="card medal-flag">${FLAG_WRAP_HTML}<strong>${finished ? 'Winners' : 'Leaders'}</strong>
       ${standings.filter((s) => s.played > 0 && s.rank <= 3)
         .map((s) => `<div class="rr-place">
-          <div class="rr-medal m${s.rank}">${s.rank}</div>
+          <div class="rr-medal">${medalSvg(s.rank, 'mid')}</div>
           <div class="rr-place-info">
             <div class="rr-place-label">${placeLabel(s.rank)} PLACE</div>
             <div class="rr-place-team">${esc(s.name)}</div>
@@ -5335,7 +5429,7 @@ async function renderBrEvent(id, opts = {}) {
           const t = p.teamId != null ? byId.get(p.teamId) : null;
           const r = p.teamId != null ? recByTeam.get(p.teamId) : null;
           return `<div class="rr-place">
-            <div class="rr-medal m${p.place}">${p.place}</div>
+            <div class="rr-medal">${medalSvg(p.place, 'mid')}</div>
             <div class="rr-place-info">
               <div class="rr-place-label">${placeLabel(p.place)} PLACE</div>
               <div class="rr-place-team">${t ? `<span class="br-seed">#${t.seed}</span>${esc(t.label)}` : '<span class="muted">—</span>'}</div>
@@ -5365,7 +5459,7 @@ async function renderBrEvent(id, opts = {}) {
             const t = byId.get(p.teamId);
             const r = recByTeam.get(p.teamId);
             return `<div class="rr-place">
-              <div class="rr-medal m${p.place}">${p.place}</div>
+              <div class="rr-medal">${medalSvg(p.place, 'mid')}</div>
               <div class="rr-place-info">
                 <div class="rr-place-label">${placeLabel(p.place)} PLACE</div>
                 <div class="rr-place-team">${t ? `<span class="br-seed">#${t.seed}</span>${esc(t.label)}` : '<span class="muted">—</span>'}</div>
