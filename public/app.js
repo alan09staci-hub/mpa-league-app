@@ -44,6 +44,18 @@ function viewerQs() {
   const id = getIdentity();
   return id ? `?viewer=${id.personId}` : '';
 }
+// "View as player" — an Admin-only switch on night pages that hides the
+// admin controls so Alan can check exactly what players see, without
+// signing out of Admin. Stored per device; the server still decides what
+// isAdmin is, and every admin route still requires the Admin sign-in —
+// this only changes what this device renders.
+const VIEW_AS_PLAYER_KEY = 'mpa_view_as_player';
+function viewAsPlayer() {
+  try { return localStorage.getItem(VIEW_AS_PLAYER_KEY) === '1'; } catch { return false; }
+}
+function setViewAsPlayer(v) {
+  try { localStorage.setItem(VIEW_AS_PLAYER_KEY, v ? '1' : '0'); } catch {}
+}
 function renderIdentity() {
   syncAdminLink();
   const slot = document.getElementById('identitySlot');
@@ -3905,8 +3917,12 @@ async function renderRREvent(id) {
   // path below is untouched.
   if (data.event.format === 'rotating') { renderRotEvent(id, data); return; }
   const { event, teams, solos = [], matches, standings, payouts, byes, isAdmin } = data;
+  // "View as player": when an Admin flips the switch, the page renders
+  // exactly as a player sees it — every admin-control gate below reads
+  // showAdmin, never isAdmin.
+  const showAdmin = isAdmin && !viewAsPlayer();
   // Member list for the Admin add-team picker (members only, never typed).
-  const members = (isAdmin && event.status === 'setup')
+  const members = (showAdmin && event.status === 'setup')
     ? (await api('/api/members').catch(() => ({ members: [] }))).members || []
     : [];
   const byId = new Map(teams.map((t) => [t.id, t]));
@@ -3922,6 +3938,7 @@ async function renderRREvent(id) {
   }
   let html = `<h1>${esc(event.name)}</h1>
     <p class="muted">${esc(rrWhen(event))} · ${rrKindLabel(event.kind)} · ${rrStatusLabel(event.status)}</p>
+    ${isAdmin ? `<div class="btnrow"><button class="btn secondary small" id="rr-view-toggle">${viewAsPlayer() ? 'Viewing as: Player — switch to Organizer' : 'Viewing as: Organizer — switch to Player'}</button></div>` : ''}
     ${event.status === 'setup' ? `<p class="muted">${esc(rrCloseLabel(event))}</p>` : ''}`;
   if (finished) html += `<div class="banner finished">Night finished — final standings and payouts below.</div>`;
   const placeLabel = (n) => ['1ST', '2ND', '3RD'][n - 1] || `${n}TH`;
@@ -3997,20 +4014,20 @@ async function renderRREvent(id) {
   }
   if (event.status === 'setup') {
     html += `<div class="card"><h3>Teams — ${teams.length}</h3>
-      ${teams.map((t) => `<div>${esc(t.label)}${isAdmin ? ` <button class="btn secondary small" data-rm-team="${t.id}">Remove</button>` : ''}</div>`).join('') || '<p class="muted">No teams yet.</p>'}
-      ${isAdmin ? `<label>Player 1</label><div id="rr-p1"></div><label>Player 2</label><div id="rr-p2"></div>
+      ${teams.map((t) => `<div>${esc(t.label)}${showAdmin ? ` <button class="btn secondary small" data-rm-team="${t.id}">Remove</button>` : ''}</div>`).join('') || '<p class="muted">No teams yet.</p>'}
+      ${showAdmin ? `<label>Player 1</label><div id="rr-p1"></div><label>Player 2</label><div id="rr-p2"></div>
       <div class="btnrow"><button class="btn small" id="rr-add-team">Add team</button></div>` : '<p class="muted">Waiting for the organizer to add teams and build the night.</p>'}
     </div>`;
     if (solos.length) {
       html += `<div class="card"><h3>Waiting to be paired — ${solos.length}</h3>
         ${solos.map((s) => {
-          const picked = isAdmin && rrPairFirst && rrPairFirst.eventId === id && rrPairFirst.id === s.id;
-          return `<div>${esc(s.name)}${isAdmin ? ` <button class="btn secondary small" data-rr-pair="${s.id}"${picked ? ' disabled' : ''}>${picked ? 'Picked — now tap a second solo' : 'Pair'}</button>` : ''}</div>`;
+          const picked = showAdmin && rrPairFirst && rrPairFirst.eventId === id && rrPairFirst.id === s.id;
+          return `<div>${esc(s.name)}${showAdmin ? ` <button class="btn secondary small" data-rr-pair="${s.id}"${picked ? ' disabled' : ''}>${picked ? 'Picked — now tap a second solo' : 'Pair'}</button>` : ''}</div>`;
         }).join('')}
-        ${isAdmin ? '<p class="muted">Tap Pair on two solos to make them a team.</p>' : '<p class="muted">The organizer pairs solos into teams.</p>'}
+        ${showAdmin ? '<p class="muted">Tap Pair on two solos to make them a team.</p>' : '<p class="muted">The organizer pairs solos into teams.</p>'}
       </div>`;
     }
-    if (isAdmin) {
+    if (showAdmin) {
       html += `<div class="card"><h3>Night settings</h3>
         ${event.kind === 'money' ? `<p>Entry fee per person ($) <input type="text" inputmode="decimal" id="rr-edit-fee" value="${(event.fee_cents / 100).toFixed(2)}" style="width:80px"></p>
         <p>Payout <select id="rr-edit-payout">${RR_PAYOUTS.map((p) => `<option value="${p.id}"${p.id === event.payout ? ' selected' : ''}>${esc(p.label)}</option>`).join('')}</select></p>
@@ -4040,7 +4057,7 @@ async function renderRREvent(id) {
       // Edit link: Admin-only, on a scored match while the night is still
       // playing — reopens the same score screen, so a mistyped score can
       // be fixed without the big SCORE button coming back.
-      const canEdit = !finished && scored && isAdmin;
+      const canEdit = !finished && scored && showAdmin;
       return `<div class="match-card">
         <div class="teams">Match ${numOf.get(m.id)}</div>
         <p class="muted">First to ${m.target_score}, win by 1</p>
@@ -4080,14 +4097,19 @@ async function renderRREvent(id) {
           .join('')}
       </div>`;
     }
-    if (isAdmin && event.status === 'playing') {
+    if (showAdmin && event.status === 'playing') {
       html += `<div class="btnrow"><button class="btn" id="rr-finish">Finish the night</button>${done.length === 0 ? '<button class="btn secondary" id="rr-rebuild">Rebuild the night</button>' : ''}<button class="btn secondary" id="rr-delete">Delete night</button></div>`;
     }
-    if (isAdmin && finished) {
+    if (showAdmin && finished) {
       html += `<div class="btnrow"><button class="btn secondary" id="rr-reopen">Reopen the night</button><button class="btn secondary" id="rr-delete">Delete night</button></div>`;
     }
   }
   app.innerHTML = html;
+  // "View as player" switch: flips the per-device flag and re-renders.
+  const viewToggle = document.getElementById('rr-view-toggle');
+  if (viewToggle) {
+    viewToggle.onclick = () => { setViewAsPlayer(!viewAsPlayer()); renderRREvent(id); };
+  }
   app.querySelectorAll('button[data-rr-score]').forEach((b) => {
     b.onclick = () => { rrScoreMatchId = +b.dataset.rrScore; renderRREvent(id); };
   });
@@ -4405,8 +4427,12 @@ async function renderRotEvent(id, data) {
     }
   }
   const { event, players, matches, standings, byes, mainPlayerId, rotatorIds, isAdmin } = data;
+  // "View as player": when an Admin flips the switch, the page renders
+  // exactly as a player sees it — every admin-control gate below reads
+  // showAdmin, never isAdmin.
+  const showAdmin = isAdmin && !viewAsPlayer();
   // Member list for the Admin add-player picker (members only, never typed).
-  const members = (isAdmin && event.status === 'setup')
+  const members = (showAdmin && event.status === 'setup')
     ? (await api('/api/members').catch(() => ({ members: [] }))).members || []
     : [];
   const playersById = new Map(players.map((p) => [p.id, p]));
@@ -4423,6 +4449,7 @@ async function renderRotEvent(id, data) {
   const placeLabel = (n) => ['1ST', '2ND', '3RD'][n - 1] || `${n}TH`;
   let html = `<h1>${esc(event.name)}</h1>
     <p class="muted">${esc(rrWhen(event))} · Free Charity · Rotating partners · Winner: ${esc(rotWinnerLabel(rule))} · ${rrStatusLabel(event.status)}</p>
+    ${isAdmin ? `<div class="btnrow"><button class="btn secondary small" id="rot-view-toggle">${viewAsPlayer() ? 'Viewing as: Player — switch to Organizer' : 'Viewing as: Organizer — switch to Player'}</button></div>` : ''}
     ${event.status === 'setup' ? `<p class="muted">${esc(rrCloseLabel(event))}</p>` : ''}`;
   if (finished) html += `<div class="banner finished">Night finished — final standings below.</div>`;
   // Leaders while playing, Winners once finished — top 3 places (a
@@ -4466,11 +4493,11 @@ async function renderRotEvent(id, data) {
   if (event.status === 'setup') {
     const rotNames = rotators.map((p) => esc(p.name)).join(', ');
     html += `<div class="card"><h3>Players — ${players.length}</h3>
-      ${players.map((p) => `<div>${esc(p.name)}${p.id === mainPlayerId ? ' <span class="br-seed">MAIN</span>' : ''}${(rotatorIds || []).includes(p.id) ? ` <span class="muted">rotates with ${esc(mainPlayer ? mainPlayer.name : 'the main')}</span>` : ''}${isAdmin ? ` <button class="btn secondary small" data-rm-player="${p.id}">Remove</button>` : ''}</div>`).join('') || '<p class="muted">No players yet.</p>'}
-      ${isAdmin ? `<label>Player</label><div id="rot-p"></div>
+      ${players.map((p) => `<div>${esc(p.name)}${p.id === mainPlayerId ? ' <span class="br-seed">MAIN</span>' : ''}${(rotatorIds || []).includes(p.id) ? ` <span class="muted">rotates with ${esc(mainPlayer ? mainPlayer.name : 'the main')}</span>` : ''}${showAdmin ? ` <button class="btn secondary small" data-rm-player="${p.id}">Remove</button>` : ''}</div>`).join('') || '<p class="muted">No players yet.</p>'}
+      ${showAdmin ? `<label>Player</label><div id="rot-p"></div>
       <div class="btnrow"><button class="btn small" id="rr-add-player">Add player</button></div>` : '<p class="muted">Waiting for the organizer to add players and build the night.</p>'}
     </div>`;
-    if (isAdmin) {
+    if (showAdmin) {
       html += `<div class="card"><h3>Main player + rotators</h3>
         <p class="muted">One main player — the others take turns partnering the main. Whoever isn't with the main that round partners with someone from the rest of the field. Nobody sits out because of the main/rotator setup.</p>
         <label>Main player</label>
@@ -4501,7 +4528,7 @@ async function renderRotEvent(id, data) {
       const teamRow = (label, won, lost, score) =>
         `<div class="teams${won ? ' rr-team-win' : lost ? ' rr-team-lose' : ''}">${label}${scored ? ` <span class="rr-score">${score}</span>` : ''}</div>`;
       const canScore = !finished && !scored && isCurrentRound;
-      const canEdit = !finished && scored && isAdmin;
+      const canEdit = !finished && scored && showAdmin;
       return `<div class="match-card">
         <div class="teams">Match ${numOf.get(m.id)}</div>
         <p class="muted">First to ${m.target_score}, win by 1</p>
@@ -4538,16 +4565,21 @@ async function renderRotEvent(id, data) {
           .join('')}
       </div>`;
     }
-    if (isAdmin && event.status === 'playing') {
+    if (showAdmin && event.status === 'playing') {
       html += `<div class="btnrow"><button class="btn" id="rr-finish">Finish the night</button>${done.length === 0 ? '<button class="btn secondary" id="rr-rebuild">Rebuild the night</button>' : ''}<button class="btn secondary" id="rr-delete">Delete night</button></div>`;
     }
-    if (isAdmin && finished) {
+    if (showAdmin && finished) {
       html += `<div class="btnrow"><button class="btn secondary" id="rr-reopen">Reopen the night</button><button class="btn secondary" id="rr-delete">Delete night</button></div>`;
     }
   }
   app.innerHTML = html;
 
   // ----- wiring -----
+  // "View as player" switch: flips the per-device flag and re-renders.
+  const viewToggle = document.getElementById('rot-view-toggle');
+  if (viewToggle) {
+    viewToggle.onclick = () => { setViewAsPlayer(!viewAsPlayer()); renderRotEvent(id); };
+  }
   const finishBtn = document.getElementById('rr-finish');
   if (finishBtn) {
     finishBtn.onclick = async () => {
@@ -4923,8 +4955,12 @@ async function renderBrEvent(id) {
     return;
   }
   const { event, teams, solos = [], matches, podium, records, payouts, isAdmin } = data;
+  // "View as player": when an Admin flips the switch, the page renders
+  // exactly as a player sees it — every admin-control gate below reads
+  // showAdmin, never isAdmin.
+  const showAdmin = isAdmin && !viewAsPlayer();
   // Member list for the Admin add-team picker (members only, never typed).
-  const members = (isAdmin && event.status === 'setup')
+  const members = (showAdmin && event.status === 'setup')
     ? (await api('/api/members').catch(() => ({ members: [] }))).members || []
     : [];
   const byId = new Map(teams.map((t) => [t.id, t]));
@@ -4973,6 +5009,7 @@ async function renderBrEvent(id) {
   }
   let html = `<h1>${esc(event.name)}</h1>
     <p class="muted">${esc(rrWhen(event))} · Double elimination · ${rrKindLabel(event.kind)} · ${rrStatusLabel(event.status)}</p>
+    ${isAdmin ? `<div class="btnrow"><button class="btn secondary small" id="br-view-toggle">${viewAsPlayer() ? 'Viewing as: Player — switch to Organizer' : 'Viewing as: Organizer — switch to Player'}</button></div>` : ''}
     ${event.status === 'setup' ? `<p class="muted">${esc(rrCloseLabel(event))}</p>` : ''}`;
   // Champion banner — as soon as the grand final decides a champion, even
   // before the night is marked finished. Gated on the podium, never on
@@ -5098,20 +5135,20 @@ async function renderBrEvent(id) {
   }
   if (event.status === 'setup') {
     html += `<div class="card"><h3>Teams — ${teams.length}</h3>
-      ${teams.map((t) => `<div>${esc(t.label)}${isAdmin ? ` <button class="btn secondary small" data-rm-team="${t.id}">Remove</button>` : ''}</div>`).join('') || '<p class="muted">No teams yet.</p>'}
-      ${isAdmin ? `<label>Player 1</label><div id="br-p1"></div><label>Player 2</label><div id="br-p2"></div>
+      ${teams.map((t) => `<div>${esc(t.label)}${showAdmin ? ` <button class="btn secondary small" data-rm-team="${t.id}">Remove</button>` : ''}</div>`).join('') || '<p class="muted">No teams yet.</p>'}
+      ${showAdmin ? `<label>Player 1</label><div id="br-p1"></div><label>Player 2</label><div id="br-p2"></div>
       <div class="btnrow"><button class="btn small" id="br-add-team">Add team</button></div>` : '<p class="muted">Waiting for the organizer to add teams and build the night.</p>'}
     </div>`;
     if (solos.length) {
       html += `<div class="card"><h3>Waiting to be paired — ${solos.length}</h3>
         ${solos.map((s) => {
-          const picked = isAdmin && brPairFirst && brPairFirst.eventId === id && brPairFirst.id === s.id;
-          return `<div>${esc(s.name)}${isAdmin ? ` <button class="btn secondary small" data-br-pair="${s.id}"${picked ? ' disabled' : ''}>${picked ? 'Picked — now tap a second solo' : 'Pair'}</button>` : ''}</div>`;
+          const picked = showAdmin && brPairFirst && brPairFirst.eventId === id && brPairFirst.id === s.id;
+          return `<div>${esc(s.name)}${showAdmin ? ` <button class="btn secondary small" data-br-pair="${s.id}"${picked ? ' disabled' : ''}>${picked ? 'Picked — now tap a second solo' : 'Pair'}</button>` : ''}</div>`;
         }).join('')}
-        ${isAdmin ? '<p class="muted">Tap Pair on two solos to make them a team.</p>' : '<p class="muted">The organizer pairs solos into teams.</p>'}
+        ${showAdmin ? '<p class="muted">Tap Pair on two solos to make them a team.</p>' : '<p class="muted">The organizer pairs solos into teams.</p>'}
       </div>`;
     }
-    if (isAdmin) {
+    if (showAdmin) {
       const canBuild = BRACKET_SIZES.includes(teams.length);
       html += `<div class="card"><h3>Night settings</h3>
         ${event.kind === 'money' ? `<p>Entry fee per person ($) <input type="text" inputmode="decimal" id="br-edit-fee" value="${(event.fee_cents / 100).toFixed(2)}" style="width:80px"></p>
@@ -5151,7 +5188,7 @@ async function renderBrEvent(id) {
       // Edit link: Admin-only, on a scored match while the night is still
       // playing — reopens the same score screen, so a mistyped score can
       // be fixed without the big SCORE button coming back.
-      const canEdit = !finished && scored && isAdmin;
+      const canEdit = !finished && scored && showAdmin;
       const isReset = m.bracket === 'G' && m.round === 1;
       const noReset = isReset && !m.active && gf1Decided;
       return `<div class="match-card">
@@ -5242,14 +5279,19 @@ async function renderBrEvent(id) {
           : ['upcoming', 'Waiting'];
       html += `<section class="rr-round"><h3>${esc(g.title)} <span class="badge ${cls}">${label}</span></h3><div class="rr-matches">` + g.matches.map(cardHtml).join('') + `</div></section>`;
     }
-    if (isAdmin && event.status === 'playing') {
+    if (showAdmin && event.status === 'playing') {
       html += `<div class="btnrow"><button class="btn" id="br-finish">Finish the night</button>${done.length === 0 ? '<button class="btn secondary" id="br-rebuild">Rebuild the night</button>' : ''}<button class="btn secondary" id="br-delete">Delete night</button></div>`;
     }
-    if (isAdmin && finished) {
+    if (showAdmin && finished) {
       html += `<div class="btnrow"><button class="btn secondary" id="br-reopen">Reopen the night</button><button class="btn secondary" id="br-delete">Delete night</button></div>`;
     }
   }
   app.innerHTML = html;
+  // "View as player" switch: flips the per-device flag and re-renders.
+  const viewToggle = document.getElementById('br-view-toggle');
+  if (viewToggle) {
+    viewToggle.onclick = () => { setViewAsPlayer(!viewAsPlayer()); renderBrEvent(id); };
+  }
   app.querySelectorAll('button[data-br-score]').forEach((b) => {
     b.onclick = () => { brScoreMatchId = +b.dataset.brScore; renderBrEvent(id); };
   });
