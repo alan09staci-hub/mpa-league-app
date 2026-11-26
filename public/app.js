@@ -56,6 +56,54 @@ function viewAsPlayer() {
 function setViewAsPlayer(v) {
   try { localStorage.setItem(VIEW_AS_PLAYER_KEY, v ? '1' : '0'); } catch {}
 }
+// ---------- Waving-flag medal cards ----------
+// The flag is an inline SVG built by JS (13 stripes, blue canton, 50
+// stars) and painted into each medal card's empty <svg class="flag-svg">
+// after the night page renders — the cards are rebuilt from innerHTML on
+// every render, so the SVG must be rebuilt each time. Ported from the
+// medals-with-waving-flag-background preview; decorative only.
+const FLAG_WRAP_HTML = `<div class="flag-wrap" aria-hidden="true"><svg class="flag-svg" viewBox="0 0 190 100" preserveAspectRatio="none"></svg><div class="flag-folds"></div><div class="flag-shine"></div><div class="flag-scrim"></div></div>`;
+function flagPauseBtnHtml() {
+  const paused = document.body.classList.contains('paused');
+  return `<button class="flag-pause" id="flag-pause" aria-pressed="${paused}"><span class="flag-dot"></span><span>${paused ? 'Play the wave' : 'Pause the wave'}</span></button>`;
+}
+function buildFlagSvg(svg) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const W = 190, H = 100, stripeH = H / 13;
+  const el = (tag, attrs) => {
+    const n = document.createElementNS(NS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  };
+  for (let i = 0; i < 13; i++) {
+    svg.appendChild(el('rect', { x: 0, y: (i * stripeH).toFixed(2), width: W, height: (stripeH + 0.3).toFixed(2), fill: i % 2 === 0 ? '#b22234' : '#f4f1e8' }));
+  }
+  const cantonW = W * 0.4, cantonH = stripeH * 7;
+  svg.appendChild(el('rect', { x: 0, y: 0, width: cantonW, height: cantonH.toFixed(2), fill: '#3c3b6e' }));
+  const starPoints = (cx, cy, r) => {
+    const pts = [];
+    for (let i = 0; i < 10; i++) {
+      const ang = -Math.PI / 2 + (i * Math.PI) / 5;
+      const rad = i % 2 === 0 ? r : r * 0.42;
+      pts.push((cx + rad * Math.cos(ang)).toFixed(2) + ',' + (cy + rad * Math.sin(ang)).toFixed(2));
+    }
+    return pts.join(' ');
+  };
+  for (let row = 0; row < 9; row++) {
+    const n = row % 2 === 0 ? 6 : 5;
+    const cy = (row + 0.5) * (cantonH / 9);
+    for (let col = 0; col < n; col++) {
+      const cx = (col + (n === 5 ? 1 : 0.5)) * (cantonW / 6);
+      svg.appendChild(el('polygon', { points: starPoints(cx, cy, 2.5), fill: '#f4f1e8' }));
+    }
+  }
+}
+function paintFlags() {
+  document.querySelectorAll('svg.flag-svg').forEach((svg) => {
+    if (svg.childNodes.length) return;
+    buildFlagSvg(svg);
+  });
+}
 function renderIdentity() {
   syncAdminLink();
   const slot = document.getElementById('identitySlot');
@@ -3944,7 +3992,7 @@ async function renderRREvent(id) {
   const placeLabel = (n) => ['1ST', '2ND', '3RD'][n - 1] || `${n}TH`;
   if (event.kind === 'money' && payouts) {
     const standingByTeam = new Map(standings.map((s) => [s.teamId, s]));
-    html += `<div class="card"><strong>Pot ${rrMoney(payouts.potCents)}</strong> <span class="muted">— ${teams.length * 2} players × ${rrMoney(event.fee_cents)} · ${esc(rrPayoutLabel(event.payout))}</span>
+    html += `<div class="card medal-flag">${FLAG_WRAP_HTML}<strong>Pot ${rrMoney(payouts.potCents)}</strong> <span class="muted">— ${teams.length * 2} players × ${rrMoney(event.fee_cents)} · ${esc(rrPayoutLabel(event.payout))}</span>
       ${payouts.places
         .map((p) => {
           const s = p.teamId != null ? standingByTeam.get(p.teamId) : null;
@@ -3959,13 +4007,14 @@ async function renderRREvent(id) {
           </div>`;
         })
         .join('')}
+      ${flagPauseBtnHtml()}
     </div>`;
   }
   // Free play: same medal winners view as money ball, without the money —
   // top 3 teams that have played, "Leaders" while playing, "Winners" once
   // the night is finished. The full standings list below is unchanged.
   if (event.kind !== 'money' && standings.some((s) => s.played > 0)) {
-    html += `<div class="card"><strong>${finished ? 'Winners' : 'Leaders'}</strong>
+    html += `<div class="card medal-flag">${FLAG_WRAP_HTML}<strong>${finished ? 'Winners' : 'Leaders'}</strong>
       ${standings.filter((s) => s.played > 0).slice(0, 3)
         .map((s) => `<div class="rr-place">
           <div class="rr-medal m${s.rank}">${s.rank}</div>
@@ -3976,6 +4025,7 @@ async function renderRREvent(id) {
           </div>
         </div>`)
         .join('')}
+      ${flagPauseBtnHtml()}
     </div>`;
   }
   // Where the viewer stands on this night (person ids come from the
@@ -4105,10 +4155,17 @@ async function renderRREvent(id) {
     }
   }
   app.innerHTML = html;
+  paintFlags();
   // "View as player" switch: flips the per-device flag and re-renders.
   const viewToggle = document.getElementById('rr-view-toggle');
   if (viewToggle) {
     viewToggle.onclick = () => { setViewAsPlayer(!viewAsPlayer()); renderRREvent(id); };
+  }
+  // Pause the wave: toggles body.paused and re-renders so the button
+  // label follows the state.
+  const flagPause = document.getElementById('flag-pause');
+  if (flagPause) {
+    flagPause.onclick = () => { document.body.classList.toggle('paused'); renderRREvent(id); };
   }
   app.querySelectorAll('button[data-rr-score]').forEach((b) => {
     b.onclick = () => { rrScoreMatchId = +b.dataset.rrScore; renderRREvent(id); };
@@ -4456,7 +4513,7 @@ async function renderRotEvent(id, data) {
   // genuine tie can put more than 3 players on the card) among players
   // who have played, by the night's winner rule and tiebreakers.
   if (standings.some((s) => s.played > 0)) {
-    html += `<div class="card"><strong>${finished ? 'Winners' : 'Leaders'}</strong>
+    html += `<div class="card medal-flag">${FLAG_WRAP_HTML}<strong>${finished ? 'Winners' : 'Leaders'}</strong>
       ${standings.filter((s) => s.played > 0 && s.rank <= 3)
         .map((s) => `<div class="rr-place">
           <div class="rr-medal m${s.rank}">${s.rank}</div>
@@ -4468,6 +4525,7 @@ async function renderRotEvent(id, data) {
           </div>
         </div>`)
         .join('')}
+      ${flagPauseBtnHtml()}
     </div>`;
   }
   const meId = getIdentity() ? getIdentity().personId : null;
@@ -4573,12 +4631,19 @@ async function renderRotEvent(id, data) {
     }
   }
   app.innerHTML = html;
+  paintFlags();
 
   // ----- wiring -----
   // "View as player" switch: flips the per-device flag and re-renders.
   const viewToggle = document.getElementById('rot-view-toggle');
   if (viewToggle) {
     viewToggle.onclick = () => { setViewAsPlayer(!viewAsPlayer()); renderRotEvent(id); };
+  }
+  // Pause the wave: toggles body.paused and re-renders so the button
+  // label follows the state.
+  const flagPause = document.getElementById('flag-pause');
+  if (flagPause) {
+    flagPause.onclick = () => { document.body.classList.toggle('paused'); renderRotEvent(id); };
   }
   const finishBtn = document.getElementById('rr-finish');
   if (finishBtn) {
@@ -5052,7 +5117,7 @@ async function renderBrEvent(id) {
   if (finished) html += `<div class="banner finished">Night finished — final standings and payouts below.</div>`;
   const placeLabel = (n) => ['1ST', '2ND', '3RD'][n - 1] || `${n}TH`;
   if (event.kind === 'money' && payouts) {
-    html += `<div class="card"><strong>Pot ${rrMoney(payouts.potCents)}</strong> <span class="muted">— ${teams.length * 2} players × ${rrMoney(event.fee_cents)} · ${esc(rrPayoutLabel(event.payout))}</span>
+    html += `<div class="card medal-flag">${FLAG_WRAP_HTML}<strong>Pot ${rrMoney(payouts.potCents)}</strong> <span class="muted">— ${teams.length * 2} players × ${rrMoney(event.fee_cents)} · ${esc(rrPayoutLabel(event.payout))}</span>
       ${payouts.places
         .map((p) => {
           const t = p.teamId != null ? byId.get(p.teamId) : null;
@@ -5068,6 +5133,7 @@ async function renderBrEvent(id) {
           </div>`;
         })
         .join('')}
+      ${flagPauseBtnHtml()}
     </div>`;
   }
   // Free play: same medal winners view as money ball, without the money —
@@ -5081,7 +5147,7 @@ async function renderBrEvent(id) {
       { place: 3, teamId: podium.third },
     ].filter((p) => p.teamId != null);
     if (won.length) {
-      html += `<div class="card"><strong>Winners</strong>
+      html += `<div class="card medal-flag">${FLAG_WRAP_HTML}<strong>Winners</strong>
         ${won
           .map((p) => {
             const t = byId.get(p.teamId);
@@ -5096,6 +5162,7 @@ async function renderBrEvent(id) {
             </div>`;
           })
           .join('')}
+        ${flagPauseBtnHtml()}
       </div>`;
     }
   }
@@ -5287,10 +5354,17 @@ async function renderBrEvent(id) {
     }
   }
   app.innerHTML = html;
+  paintFlags();
   // "View as player" switch: flips the per-device flag and re-renders.
   const viewToggle = document.getElementById('br-view-toggle');
   if (viewToggle) {
     viewToggle.onclick = () => { setViewAsPlayer(!viewAsPlayer()); renderBrEvent(id); };
+  }
+  // Pause the wave: toggles body.paused and re-renders so the button
+  // label follows the state.
+  const flagPause = document.getElementById('flag-pause');
+  if (flagPause) {
+    flagPause.onclick = () => { document.body.classList.toggle('paused'); renderBrEvent(id); };
   }
   app.querySelectorAll('button[data-br-score]').forEach((b) => {
     b.onclick = () => { brScoreMatchId = +b.dataset.brScore; renderBrEvent(id); };
