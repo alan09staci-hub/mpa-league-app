@@ -675,7 +675,7 @@ async function renderLanding(id, mine) {
         <div class="gl-how"><strong>How scoring works</strong><br>Every player plays for <strong>60 points</strong> a night. How a court gets there depends on how many players are on it:<br>• <strong>4 players</strong> — 3 games to 20<br>• <strong>5 players</strong> — 5 games to 15, with 1 player sitting out (BYE) each game<br>• <strong>6 players</strong> — 9 games to 10, with 2 sitting out each game<br>First to the target, win by 1. Your standing is your points <strong>earned</strong> divided by your points <strong>possible</strong>.</div>
         <div class="gl-sample">
           <div class="gl-sample-head">SAMPLE — <span>WHAT A LEAGUE WILL LOOK LIKE</span> • NOT LIVE</div>
-          <div class="gl-sample-title"><div><div class="gl-kicker">SAMPLE • EXAMPLE FROM THE COMPLETED TEST SEASON</div><h3>Matches — one at a time</h3><p class="muted small">Sample only — no live match today. This is what they'll see on game night once a league is running.</p></div></div>
+          <div class="gl-sample-title"><div><div class="gl-kicker">SAMPLE • EXAMPLE FROM THE COMPLETED TEST SEASON</div><h3>Matches — every game, in order</h3><p class="muted small">Sample only — no live match today. This is what they'll see on game night once a league is running.</p></div></div>
           <div class="gl-phone">
             <div class="gl-phone-top"><span>MATCHES</span><span class="gl-pill">COURT 1</span></div>
             <div class="gl-pills"><span class="gl-pill dark">SAMPLE</span><span class="gl-pill green">● NOW PLAYING</span></div>
@@ -684,7 +684,7 @@ async function renderLanding(id, mine) {
               <div class="gl-team">Alan &amp; Stew</div>
               <div class="gl-vs">VS</div>
               <div class="gl-team">Justin &amp; Zell</div>
-              <div class="gl-score-btn">SCORE</div>
+              <div class="gl-score-btn">Score Match</div>
             </div>
             <h4>Finished</h4>
             <div class="rr-team-win"><span>Laura &amp; Bryan</span><span class="rr-score">15</span></div>
@@ -693,12 +693,12 @@ async function renderLanding(id, mine) {
           </div>
           <ul class="gl-notes">
             <li><strong>Sample:</strong> names and scores are from the completed test season — shown so a new member can see how a league night works</li>
-            <li>When a league is live, a player sees <strong>only their own court's games</strong> (including BYEs), and only the match now playing gets a SCORE button</li>
+            <li>When a league is live, a player sees <strong>only their own court's games</strong> (including BYEs), and every game gets a Score Match tab</li>
           </ul>
         </div>
         <div class="gl-sample">
           <div class="gl-sample-head">SAMPLE — <span>WHAT A LEAGUE WILL LOOK LIKE</span> • NOT LIVE</div>
-          <div class="gl-sample-title"><div><div class="gl-kicker">SAMPLE • EXAMPLE FROM THE COMPLETED TEST SEASON</div><h3>Enter score</h3><p class="muted small">Sample only — type the score, tap Save, and the next match comes up.</p></div></div>
+          <div class="gl-sample-title"><div><div class="gl-kicker">SAMPLE • EXAMPLE FROM THE COMPLETED TEST SEASON</div><h3>Enter score</h3><p class="muted small">Sample only — type the score, tap Save, and you're back on the list with the next match up.</p></div></div>
           <div class="gl-phone">
             <div class="gl-phone-top"><span>GAMES TO 15</span></div>
             <div class="gl-team">Alan &amp; Stew</div>
@@ -1576,6 +1576,55 @@ function renderGroups(data, id) {
     </div>`).join('');
 }
 
+// ---------- Player matches view (shared helpers) ----------
+// Pure helpers for the league game-day Matches tab (renderMatches /
+// renderScoreView below). Kept free of DOM access so scripts/
+// test-player-matches.js can extract and run the real code.
+function courtMembersInOrder(playing, memberIds) {
+  // The playing list is rank-ordered and courts are contiguous slices of
+  // standings order, so filtering it to a court's members gives the
+  // court's 1..N seating order. A member missing from the playing list
+  // (should not happen — court members are opted in) is appended last.
+  const set = new Set(memberIds);
+  const ordered = (playing || []).filter((p) => set.has(p.person_id)).map((p) => p.person_id);
+  memberIds.forEach((id) => { if (!ordered.includes(id)) ordered.push(id); });
+  return ordered;
+}
+function courtNumbers(playing, memberIds) {
+  const map = new Map();
+  courtMembersInOrder(playing, memberIds).forEach((id, i) => map.set(id, i + 1));
+  return map;
+}
+function courtMemberIds(groups, matches, court) {
+  const g = (groups || []).find((x) => x.court === court);
+  if (g && g.players && g.players.length) return g.players.map((p) => p.person_id);
+  const ids = [];
+  for (const m of matches || []) {
+    if (m.court !== court) continue;
+    const row = m.kind === 'bye' ? [m.bye_person_id] : [m.team1_p1, m.team1_p2, m.team2_p1, m.team2_p2];
+    row.forEach((id) => { if (id && !ids.includes(id)) ids.push(id); });
+  }
+  return ids;
+}
+function firstUnscoredMatch(games) {
+  return games.find((m) => m.score1 == null) || null;
+}
+function isLastMatch(games, m) {
+  return games.length > 0 && games[games.length - 1].id === m.id;
+}
+function saveBarLabel(games, m) {
+  return isLastMatch(games, m) ? 'SAVE — FINISH THE NIGHT' : 'SAVE — NEXT MATCH';
+}
+// Same messages the score view has always shown; null means valid.
+function validateLeagueScores(s1, s2, target) {
+  if (s1 == null || s2 == null) return 'Enter both scores.';
+  if (!Number.isInteger(s1) || !Number.isInteger(s2) || s1 < 0 || s2 < 0 || s1 > 30 || s2 > 30) return 'Scores must be whole numbers from 0 to 30.';
+  if (s1 === s2) return 'Scores cannot tie.';
+  if (Math.max(s1, s2) !== target) return `One side must reach ${target} (games to ${target}).`;
+  return null;
+}
+// ---------- /Player matches view ----------
+
 function renderMatches(leagueId, sessionId, data, id) {
   const body = document.getElementById('gdBody');
   const { matches, window: win, isAdmin, session } = data;
@@ -1593,46 +1642,62 @@ function renderMatches(leagueId, sessionId, data, id) {
   const finished = session.status === 'completed';
   const games = matches.filter((m) => m.kind === 'match');
   const byes = matches.filter((m) => m.kind === 'bye');
-  const byeForRound = (round) => byes.find((b) => b.round === round);
+  const byesForRound = (court, round) => byes.filter((b) => b.court === court && b.round === round);
+  const numbersForCourt = (court) => courtNumbers(data.playing, courtMemberIds(data.groups, matches, court));
   // A dedicated score view is open — show it instead of the list.
   if (scoreMatchId) {
     const open = games.find((g) => g.id === scoreMatchId);
-    if (open) { renderScoreView(leagueId, sessionId, id, open, rosterMap); return; }
+    if (open) {
+      const courtGames = games.filter((g) => g.court === open.court).sort((a, b) => a.round - b.round);
+      const openNumbers = numbersForCourt(open.court);
+      renderScoreView(leagueId, sessionId, id, open, rosterMap, {
+        numbers: openNumbers,
+        courtSize: openNumbers.size,
+        byes: byesForRound(open.court, open.round),
+        games: courtGames,
+      });
+      return;
+    }
     scoreMatchId = null;
   }
   if (!games.length) {
     body.innerHTML = byes.map((m) => `<div class="bye-row">Court ${m.court} · Round ${m.round} — ${esc(personName(rosterMap, m.bye_person_id))} sits out (BYE)</div>`).join('');
     return;
   }
- const cardHtml = (m, showScore) => {
-  const t1 = `${esc(personName(rosterMap, m.team1_p1))} & ${esc(personName(rosterMap, m.team1_p2))}`;
-  const t2 = `${esc(personName(rosterMap, m.team2_p1))} & ${esc(personName(rosterMap, m.team2_p2))}`;
-  const bye = byeForRound(m.round);
-  const scored = m.score1 != null;
-  return `<div class="match-card">
-    <div class="teams">Match ${m.round}</div>
-    <p class="muted">First to ${m.target_score}, win by 1</p>
-    <div class="muted">Court ${m.court} · Round ${m.round}</div>
-    <div class="teams">${t1}</div>
-    <div class="vs">VS</div>
-    <div class="teams">${t2}</div>
-    ${bye ? `<div class="bye-row">${esc(personName(rosterMap, bye.bye_person_id))} — BYE</div>` : ''}
-    ${scored ? `<p>${m.score1} – ${m.score2}</p>` : ''}
-    ${showScore && !finished ? `<button class="btn" data-score="${m.id}">SCORE</button>` : ''}
-  </div>`;
-};
-
-
-  const current = games.find((m) => m.score1 == null);
-  const done = games.filter((m) => m.score1 != null);
+  const numName = (numbers, pid) => `${numbers.get(pid) ?? '–'}. ${esc(personName(rosterMap, pid))}`;
+  const byeRowHtml = (numbers, b) => `<div class="match-bye"><span>${numName(numbers, b.bye_person_id)}</span><span>BYE</span></div>`;
+  const teamLine = (label, names) => `<div class="teams"><span class="team-tag">${label}</span>${names}</div>`;
+  const teamPanel = (names, won, score) =>
+    `<div class="teams${won ? ' rr-team-win' : ' rr-team-lose'}"><span>${names}</span><span class="rr-score">${score}</span></div>`;
+  const cardHtml = (m, numbers, upNow) => {
+    const scored = m.score1 != null;
+    const t1 = `${numName(numbers, m.team1_p1)} & ${numName(numbers, m.team1_p2)}`;
+    const t2 = `${numName(numbers, m.team2_p1)} & ${numName(numbers, m.team2_p2)}`;
+    const t1Win = scored && m.score1 > m.score2;
+    const t2Win = scored && m.score2 > m.score1;
+    return `<div class="match-card">
+      <div class="match-head"><span class="match-title">Match ${m.round}</span>${upNow ? '<span class="up-badge">UP NOW</span>' : ''}${!finished ? `<button class="score-tab" data-score="${m.id}">Score Match</button>` : ''}</div>
+      ${scored
+        ? `${teamPanel(t1, t1Win, m.score1)}<div class="vs">VS</div>${teamPanel(t2, t2Win, m.score2)}`
+        : `${teamLine('TEAM 1', t1)}<div class="vs">VS</div>${teamLine('TEAM 2', t2)}`}
+      ${byesForRound(m.court, m.round).map((b) => byeRowHtml(numbers, b)).join('')}
+    </div>`;
+  };
+  // Every match in order, grouped by court — the match now playing is
+  // the first unscored one on its court and is marked UP NOW. A scored
+  // match stays in its order position (winning team green, losing team
+  // red) and its Score Match tab reopens it to correct the score.
+  const courtIds = [...new Set(games.map((m) => m.court))].sort((a, b) => a - b);
   let html = '';
-  if (!current) {
+  if (!games.some((m) => m.score1 == null)) {
     html += `<div class="card"><p><strong>All matches scored</strong></p></div>`;
-  } else {
-    html += cardHtml(current, true);
   }
-  if (done.length) {
-    html += `<h3>Finished</h3>` + done.map((m) => cardHtml(m, true)).join('');
+  for (const court of courtIds) {
+    const courtGames = games.filter((m) => m.court === court).sort((a, b) => a.round - b.round);
+    const numbers = numbersForCourt(court);
+    const up = firstUnscoredMatch(courtGames);
+    html += `<h3>Court ${court} · ${numbers.size} Players</h3>` +
+      courtGames.map((m) => cardHtml(m, numbers, up && m.id === up.id)).join('');
   }
   body.innerHTML = html;
   body.querySelectorAll('button[data-score]').forEach((b) => {
@@ -1640,31 +1705,38 @@ function renderMatches(leagueId, sessionId, data, id) {
   });
 }
 
-// Dedicated one-match score screen, opened from the Matches list via SCORE.
-// scoreMatchId tracks the open match so the 30s auto-refresh never kicks
-// the player out mid-entry.
-function renderScoreView(leagueId, sessionId, id, m, rosterMap) {
+// Dedicated one-match score screen, opened from the Matches list via
+// Score Match. scoreMatchId tracks the open match so the 30s
+// auto-refresh never kicks the player out mid-entry. Saving returns to
+// the Matches list (never straight into the next score view); the next
+// match up is marked UP NOW there.
+function renderScoreView(leagueId, sessionId, id, m, rosterMap, opts = {}) {
   const body = document.getElementById('gdBody');
-  const p1 = esc(personName(rosterMap, m.team1_p1));
-  const p2 = esc(personName(rosterMap, m.team1_p2));
-  const p3 = esc(personName(rosterMap, m.team2_p1));
-  const p4 = esc(personName(rosterMap, m.team2_p2));
+  const numbers = opts.numbers || new Map();
+  const byes = opts.byes || [];
+  const numName = (pid) => `${numbers.get(pid) ?? '–'}. ${esc(personName(rosterMap, pid))}`;
   const scored = m.score1 != null;
   body.innerHTML = `
     <div class="match-card">
-      <h3>Match ${m.round} · Court ${m.court} · Round ${m.round}</h3>
-      <p class="muted">Games to ${m.target_score}</p>
-      <div class="teams">${p1}<br>${p2}</div>
+      <div class="match-head"><span class="match-title">Match ${m.round}</span></div>
+      <p class="muted">Court ${m.court}${opts.courtSize ? ` · ${opts.courtSize} Players` : ''}</p>
+      <p class="match-sub">1 to ${m.target_score} by 1</p>
+      <p class="team-label">Team 1</p>
+      <p class="player">${numName(m.team1_p1)}</p>
+      <p class="player">${numName(m.team1_p2)}</p>
       <div class="score-row">
         <input type="text" inputmode="numeric" id="sv-s1" value="${scored ? m.score1 : ''}" placeholder="—" aria-label="Team 1 score">
       </div>
       <div class="vs" style="text-align:center">VS</div>
-      <div class="teams">${p3}<br>${p4}</div>
+      <p class="team-label">Team 2</p>
+      <p class="player">${numName(m.team2_p1)}</p>
+      <p class="player">${numName(m.team2_p2)}</p>
       <div class="score-row">
         <input type="text" inputmode="numeric" id="sv-s2" value="${scored ? m.score2 : ''}" placeholder="—" aria-label="Team 2 score">
       </div>
+      ${byes.map((b) => `<div class="match-bye"><span>${numName(b.bye_person_id)}</span><span>BYE</span></div>`).join('')}
+      <button class="save-bar" id="svSave">${saveBarLabel(opts.games || [], m)}</button>
       <div class="score-row">
-        <button class="btn" id="svSave">Save score</button>
         ${scored ? `<button class="btn secondary small" id="svClear">Clear</button>` : ''}
         <button class="btn secondary" id="svBack">Back</button>
       </div>
@@ -1676,10 +1748,8 @@ function renderScoreView(leagueId, sessionId, id, m, rosterMap) {
     const s2 = document.getElementById('sv-s2').value;
     const n1 = s1 === '' ? null : +s1;
     const n2 = s2 === '' ? null : +s2;
-    if (n1 == null || n2 == null) { toast('Enter both scores.'); return; }
-    if (!Number.isInteger(n1) || !Number.isInteger(n2) || n1 < 0 || n2 < 0 || n1 > 30 || n2 > 30) { toast('Scores must be whole numbers from 0 to 30.'); return; }
-    if (n1 === n2) { toast('Scores cannot tie.'); return; }
-    if (Math.max(n1, n2) !== m.target_score) { toast(`One side must reach ${m.target_score} (games to ${m.target_score}).`); return; }
+    const err = validateLeagueScores(n1, n2, m.target_score);
+    if (err) { toast(err); return; }
     try {
       await post(`/api/leagues/${leagueId}/sessions/${sessionId}/matches/${m.id}/score`, {
         personId: id ? id.personId : null,
