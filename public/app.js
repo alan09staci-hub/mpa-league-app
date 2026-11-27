@@ -288,6 +288,24 @@ function fmtPhone(v) {
   if (d.length !== 10) return String(v);
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
 }
+// ---------- sms: links (shared) ----------
+// Build an sms: link for one or more recipients. Every number is reduced
+// to digits only first: stored numbers can carry formatting like
+// "(229) 555-1234" — only the Admin member-edit save strips to digits,
+// the join / Become a Member forms store the number exactly as typed —
+// and iOS drops every recipient after the first when the addresses in a
+// plain sms: URL carry parens or dashes. Multiple recipients use Apple's
+// documented sms:/open?addresses= form; a single recipient keeps the
+// plain sms:{number}?&body=... shape. Callers only call with >= 1 number.
+function smsHref(phones, text) {
+  const nums = (Array.isArray(phones) ? phones : [phones])
+    .map((p) => String(p ?? '').replace(/\D/g, ''))
+    .filter(Boolean);
+  const body = encodeURIComponent(text || '');
+  if (nums.length > 1) return `sms:/open?addresses=${nums.join(',')}&body=${body}`;
+  return `sms:${nums[0] || ''}?&body=${body}`;
+}
+// ---------- /sms: links ----------
 // Skill-range gate for joining (mirror of server/lib/league.js): the
 // league's skill band is the qualifier. Returns an error message when the
 // rating is outside the band, else null. '50+' is an age band, not a
@@ -2845,7 +2863,7 @@ async function renderAdminBody(leagues, league, me) {
           const text = `Hi ${first}, your MPA ${label} passcode is ${passcode}. Sign in on the ${tab} tab with it.`;
           if (phone) {
             msg.textContent = 'New passcode saved — your text app is opening. Send it when ready.';
-            location.href = `sms:${phone}?&body=${encodeURIComponent(text)}`;
+            location.href = smsHref([phone], text);
           } else {
             msg.textContent = `New passcode saved: ${passcode} — no phone on file, so send it yourself.`;
           }
@@ -3173,12 +3191,12 @@ async function renderAdminBody(leagues, league, me) {
     document.getElementById('cm-clear').onclick = () => { cmPicks().forEach((c) => { c.checked = false; }); cmUpdate(); };
     cmSend.onclick = () => {
       const text = document.getElementById('cm-text').value.trim();
-      const phones = cmPicks().filter((c) => c.checked).map((c) => c.value).join(', ');
+      const phones = cmPicks().filter((c) => c.checked).map((c) => c.value);
       const msg = document.getElementById('cm-msg');
       if (!text) { if (msg) msg.textContent = 'Type the message first.'; return; }
-      if (!phones) { if (msg) msg.textContent = 'Pick at least one person.'; return; }
+      if (!phones.length) { if (msg) msg.textContent = 'Pick at least one person.'; return; }
       if (msg) msg.textContent = '';
-      location.href = `sms:${phones.replace(/ /g, '')}?&body=${encodeURIComponent(text)}`;
+      location.href = smsHref(phones, text);
     };
   }
 
@@ -3255,7 +3273,7 @@ function announceHtml({ league, sessions, members, memberCount, withEmail, withP
     </div>
     <div class="card"><h3>Text message draft</h3>
       <pre class="draft-text" id="an-text-body">${esc(textDraft)}</pre>
-      <div class="btnrow"><button class="btn small" id="an-copy-text">Copy text</button>${phones ? `<a class="btn small" href="sms:${esc(phones.replace(/ /g, ''))}?&amp;body=${encodeURIComponent(textDraft)}">Send by text</a>` : ''}</div>
+      <div class="btnrow"><button class="btn small" id="an-copy-text">Copy text</button>${phones ? `<a class="btn small" href="${esc(smsHref(members.filter((m) => m.phone).map((m) => m.phone), textDraft))}">Send by text</a>` : ''}</div>
     </div>
     <div class="card"><h3>Who it goes to — MPA members (${memberCount})</h3>
       <p class="muted small">${withEmail} with an email on file · ${withPhone} with a phone number</p>
@@ -3322,7 +3340,7 @@ function announceAllHtml({ leagues, members, memberCount, withEmail, withPhone }
     </div>
     <div class="card"><h3>Text message draft</h3>
       <pre class="draft-text" id="an-text-body">${esc(textDraft)}</pre>
-      <div class="btnrow"><button class="btn small" id="an-copy-text">Copy text</button>${phones ? `<a class="btn small" href="sms:${esc(phones.replace(/ /g, ''))}?&amp;body=${encodeURIComponent(textDraft)}">Send by text</a>` : ''}</div>
+      <div class="btnrow"><button class="btn small" id="an-copy-text">Copy text</button>${phones ? `<a class="btn small" href="${esc(smsHref(members.filter((m) => m.phone).map((m) => m.phone), textDraft))}">Send by text</a>` : ''}</div>
     </div>
     <div class="card"><h3>Who it goes to — MPA members (${memberCount})</h3>
       <p class="muted small">${withEmail} with an email on file · ${withPhone} with a phone number</p>
@@ -3394,7 +3412,7 @@ function announceJoinHtml({ members, memberCount, withEmail, withPhone }) {
     </div>
     <div class="card"><h3>Text message draft</h3>
       <pre class="draft-text" id="an-text-body">${esc(textDraft)}</pre>
-      <div class="btnrow"><button class="btn small" id="an-copy-text">Copy text</button>${phones ? `<a class="btn small" href="sms:${esc(phones.replace(/ /g, ''))}?&amp;body=${encodeURIComponent(textDraft)}">Send by text</a>` : ''}</div>
+      <div class="btnrow"><button class="btn small" id="an-copy-text">Copy text</button>${phones ? `<a class="btn small" href="${esc(smsHref(members.filter((m) => m.phone).map((m) => m.phone), textDraft))}">Send by text</a>` : ''}</div>
     </div>
     <div class="card"><h3>Invite someone new</h3>
       <p class="muted small">Text the Join MPA invite to someone who isn't a member yet — type their number and send.</p>
